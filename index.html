@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>シフト表作成システム</title>
+  <link rel="stylesheet" href="style.css">
+
+  <!--
+  ═══════════════════════════════════════════════════════════
+  ■ SheetJS (xlsx.js) セットアップ方法
+  ═══════════════════════════════════════════════════════════
+  【オフライン環境（推奨）】
+  1. 以下のURLにアクセスしてファイルをダウンロード:
+     https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js
+  2. ダウンロードしたファイルを index.html と同じフォルダに
+     「xlsx.full.min.js」という名前で保存する
+  3. ブラウザで index.html を開く
+
+  【インターネット接続ありの場合】
+  ローカルファイルが見つからない場合、自動的にCDNから読み込みます。
+  ═══════════════════════════════════════════════════════════
+  -->
+
+  <!-- まずローカルのxlsx.full.min.jsを試みる（オフライン用） -->
+  <script>
+    // ローカルファイルの読み込み成否を追跡するフラグ
+    window._xlsxLocalLoaded = false;
+  </script>
+  <script src="xlsx.full.min.js" onload="window._xlsxLocalLoaded = true;"></script>
+  <script>
+    // ローカルファイルが読み込めなかった場合、CDNから動的に読み込む
+    if (!window._xlsxLocalLoaded && typeof XLSX === 'undefined') {
+      var cdnScript = document.createElement('script');
+      cdnScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      cdnScript.onerror = function() {
+        console.warn('SheetJS CDN読み込みも失敗しました。xlsx.full.min.jsをローカルに配置してください。');
+      };
+      document.head.appendChild(cdnScript);
+    }
+  </script>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ═══ ヘッダー ═══ -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="header-title">
+        <span class="header-icon">📋</span>
+        <div>
+          <h1>シフト表作成システム</h1>
+          <p>スタッフの希望シートを読み込んでシフト表を自動生成します</p>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+
+    <!-- ─── STEP 1: 対象月・勤務条件設定 ─── -->
+    <section class="card collapsible-card" id="section-settings">
+      <div class="card-header step-header" data-target="settings-body">
+        <span class="step-badge">STEP 1</span>
+        <h2>対象月・勤務条件の設定</h2>
+        <span class="collapse-icon">▲</span>
+      </div>
+      <div class="card-body collapsible-body" id="settings-body">
+
+        <!-- 対象月 -->
+        <div class="settings-group">
+          <h3 class="settings-group-title">📅 対象月</h3>
+          <div class="month-picker">
+            <select id="yearSelect" class="select-input"></select>
+            <select id="monthSelect" class="select-input"></select>
+            <span id="monthPeriodLabel" class="month-days-label"></span>
+          </div>
+        </div>
+
+        <hr class="settings-divider">
+
+        <!-- 基本勤務時間 -->
+        <div class="settings-group">
+          <h3 class="settings-group-title">🕐 基本勤務時間</h3>
+          <div class="time-range-row">
+            <select id="baseWorkStart" class="select-input time-select"></select>
+            <span class="time-separator">から</span>
+            <select id="baseWorkEnd" class="select-input time-select"></select>
+          </div>
+        </div>
+
+        <hr class="settings-divider">
+
+        <!-- 人数設定 -->
+        <div class="settings-group">
+          <h3 class="settings-group-title">👥 人数設定</h3>
+          <div class="settings-grid">
+            <div class="setting-item">
+              <label for="minStaffPerDay">最低出勤人数</label>
+              <div class="setting-field">
+                <input type="number" id="minStaffPerDay" class="setting-input" value="1" min="0" max="99">
+                <span class="setting-unit">人/日</span>
+              </div>
+            </div>
+            <div class="setting-item">
+              <label for="minEmployeePerDay">最低出勤人数（社員）</label>
+              <div class="setting-field">
+                <input type="number" id="minEmployeePerDay" class="setting-input" value="1" min="0" max="99">
+                <span class="setting-unit">人/日</span>
+              </div>
+            </div>
+            <div class="setting-item">
+              <label for="earlyShiftCount">早番</label>
+              <div class="setting-field">
+                <input type="number" id="earlyShiftCount" class="setting-input" value="1" min="0" max="99">
+                <span class="setting-unit">人</span>
+              </div>
+              <span class="setting-hint-inline">勤務開始時間に出勤できる人数</span>
+            </div>
+            <div class="setting-item">
+              <label for="lateShiftCount">遅番</label>
+              <div class="setting-field">
+                <input type="number" id="lateShiftCount" class="setting-input" value="1" min="0" max="99">
+                <span class="setting-unit">人</span>
+              </div>
+              <span class="setting-hint-inline">勤務終了時間まで入れる人数</span>
+            </div>
+          </div>
+        </div>
+
+
+      </div>
+    </section>
+
+    <!-- ─── STEP 2: スタッフ管理 ─── -->
+    <section class="card collapsible-card" id="section-staff-management">
+      <div class="card-header step-header" data-target="staff-management-body">
+        <span class="step-badge">STEP 2</span>
+        <h2>スタッフ管理</h2>
+        <span id="registeredStaffCount" class="staff-count-badge"></span>
+        <span class="collapse-icon">▲</span>
+      </div>
+      <div class="card-body collapsible-body" id="staff-management-body">
+
+        <!-- 新規登録フォーム -->
+        <div class="register-form-wrapper">
+          <div class="register-form-grid">
+            <div class="form-field required">
+              <label for="regStaffName">スタッフ名</label>
+              <input type="text" id="regStaffName" class="form-input" placeholder="名前">
+            </div>
+            <div class="form-field required">
+              <label for="regStaffCategory">区分</label>
+              <select id="regStaffCategory" class="select-input">
+                <option value="">選択</option>
+                <option value="employee">社員</option>
+                <option value="community">コミュニティ</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label for="regMonthlyHours">月所定労働時間</label>
+              <div class="setting-field">
+                <input type="number" id="regMonthlyHours" class="form-input sm" placeholder="160" min="0" max="400">
+                <span class="setting-unit">h</span>
+              </div>
+            </div>
+            <div class="form-field">
+              <label for="regWeeklyHours">週所定労働時間</label>
+              <div class="setting-field">
+                <input type="number" id="regWeeklyHours" class="form-input sm" placeholder="40" min="0" max="168">
+                <span class="setting-unit">h</span>
+              </div>
+            </div>
+            <div class="form-field">
+              <label for="regDailyHours">1日勤務時間</label>
+              <div class="setting-field">
+                <input type="number" id="regDailyHours" class="form-input sm" placeholder="8" min="0" max="24" step="0.5">
+                <span class="setting-unit">h</span>
+              </div>
+            </div>
+            <div class="form-field">
+              <label>勤務可能時間帯</label>
+              <div class="time-range-row compact">
+                <select id="regAvailStart" class="select-input time-select sm"></select>
+                <span class="time-separator">〜</span>
+                <select id="regAvailEnd" class="select-input time-select sm"></select>
+              </div>
+            </div>
+          </div>
+          <button id="registerStaffBtn" class="btn btn-primary" type="button">➕ 登録</button>
+        </div>
+
+        <p class="settings-hint">※ スタッフ名と区分は必須です。未入力の項目はデフォルト値（月160h/週40h/日8h）が適用されます。</p>
+
+        <!-- 登録済みスタッフ一覧 -->
+        <div id="registeredStaffList"></div>
+
+      </div>
+    </section>
+
+    <!-- ─── STEP 3: ファイルアップロード ─── -->
+    <section class="card collapsible-card" id="section-upload">
+      <div class="card-header step-header" data-target="upload-body">
+        <span class="step-badge">STEP 3</span>
+        <h2>Excelファイルのアップロード</h2>
+        <span class="collapse-icon">▲</span>
+      </div>
+      <div class="card-body collapsible-body" id="upload-body">
+
+        <!-- ドラッグ＆ドロップエリア -->
+        <div id="dropzone" class="dropzone">
+          <div class="dropzone-icon">📁</div>
+          <p class="dropzone-main">ファイルをここにドラッグ＆ドロップ</p>
+          <p class="dropzone-sub">または</p>
+          <button id="uploadBtn" class="btn btn-secondary" type="button">ファイルを選択</button>
+          <p class="dropzone-hint">対応形式：.xlsx / .xls（複数ファイル同時選択可）</p>
+        </div>
+        <input type="file" id="fileInput" multiple accept=".xlsx,.xls" hidden>
+
+        <!-- Excelフォーマット説明 -->
+        <div class="excel-format-note">
+          <h3>📋 スタッフ提出Excelのフォーマット</h3>
+          <table class="format-table">
+            <thead>
+              <tr><th>A列（日付）</th><th>B列（希望内容）</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>21〜翌月20（日の数値）</td>
+                <td>空欄 ＝ 出勤可能</td>
+              </tr>
+              <tr>
+                <td></td>
+                <td class="cell-red">休（赤） ＝ 絶対休み</td>
+              </tr>
+              <tr>
+                <td></td>
+                <td class="cell-blue">休（青） ＝ できれば休み</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="format-note">※ 登録済みスタッフ名がファイル名に含まれていれば自動で紐づけされます</p>
+          <p class="format-note">※ B列は「休（赤）」「休（青）」の文字を含むセルを自動判定します</p>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ─── STEP 4: スタッフ設定 ─── -->
+    <section class="card collapsible-card" id="section-staff" style="display:none">
+      <div class="card-header step-header" data-target="staff-body">
+        <span class="step-badge">STEP 4</span>
+        <h2>スタッフ設定</h2>
+        <span id="staffCount" class="staff-count-badge"></span>
+        <span class="collapse-icon">▲</span>
+      </div>
+      <div class="card-body collapsible-body" id="staff-body">
+        <p class="section-desc">各スタッフの勤務条件を確認・調整してください。ここでの編集は今回のシフト作成にのみ適用されます。</p>
+        <div class="staff-list-header-v2">
+          <span>スタッフ名</span>
+          <span>区分</span>
+          <span>月所定</span>
+          <span>週所定</span>
+          <span>1日</span>
+          <span>勤務可能</span>
+          <span>希望</span>
+          <span>操作</span>
+        </div>
+        <div id="staffList"></div>
+      </div>
+    </section>
+
+    <!-- ─── STEP 5: 個別シフト設定 ─── -->
+    <section class="card collapsible-card" id="section-individual-settings" style="display:none">
+      <div class="card-header step-header" data-target="individual-settings-body">
+        <span class="step-badge">STEP 5</span>
+        <h2>個別シフト設定</h2>
+        <span class="collapse-icon">▲</span>
+      </div>
+      <div class="card-body collapsible-body" id="individual-settings-body">
+        <p class="section-desc">日付ごとに特別な勤務時間、人数制限、および強制出勤させるスタッフを設定できます。<br>※ここで「指定する」で割り当てられたスタッフの出勤は、希望休や勤務可能時間などの制約よりも優先して適用されます。</p>
+        
+        <div class="individual-settings-actions">
+          <button id="addIndividualSettingBtn" class="btn btn-secondary btn-sm" type="button">➕ 新しい個別設定を追加</button>
+        </div>
+        
+        <div id="individualSettingsContainer"></div>
+      </div>
+    </section>
+
+    <!-- ─── アクションボタン ─── -->
+    <div class="action-row" id="section-actions" style="display:none">
+      <button id="generateBtn" class="btn btn-primary btn-large" type="button">
+        ⚡ シフト表を自動生成する
+      </button>
+      <button id="resetBtn" class="btn btn-danger" type="button">
+        🔄 全リセット
+      </button>
+    </div>
+
+    <!-- ─── STEP 5: 結果表示 ─── -->
+    <section class="card collapsible-card" id="section-result" style="display:none">
+      <div class="card-header step-header" data-target="result-body">
+        <h2>📊 生成されたシフト表</h2>
+        <div class="result-header-actions">
+          <span id="resultMonthLabel" class="result-month-label"></span>
+          <button id="exportBtn" class="btn btn-export" type="button">📥 CSVエクスポート</button>
+        </div>
+        <span class="collapse-icon">▲</span>
+      </div>
+      <div class="card-body collapsible-body" id="result-body">
+
+        <!-- 凡例 -->
+        <div class="legend">
+          <span class="legend-item">
+            <span class="legend-dot shift-work"></span>出勤
+          </span>
+          <span class="legend-item">
+            <span class="legend-dot shift-off-red"></span>休（赤：絶対休）
+          </span>
+          <span class="legend-item">
+            <span class="legend-dot shift-off-blue"></span>休（青：希望休）
+          </span>
+          <span class="legend-item">
+            <span class="legend-dot shift-off"></span>休（調整）
+          </span>
+        </div>
+
+        <!-- シフト表テーブル -->
+        <div class="table-wrapper" id="tableWrapper">
+          <div id="resultTable"></div>
+        </div>
+
+        <!-- 注意書き -->
+        <div class="result-notes">
+          <p>※ 赤数字（例：<span class="note-over">+8h</span>）は所定時間超過、青数字（例：<span class="note-under">-8h</span>）は不足を示します</p>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- トースト通知コンテナ -->
+<div id="toast-container"></div>
+
+<!-- ライブラリ未読み込み時の警告オーバーレイ -->
+<div id="xlsxWarning" class="overlay-warning" style="display:none">
+  <div class="overlay-box">
+    <h3>⚠️ SheetJSライブラリが読み込まれていません</h3>
+    <p>Excelファイルを読み込むためにSheetJSが必要です。</p>
+    <ol>
+      <li>
+        <a href="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"
+           target="_blank">このリンクをクリック</a>してJSファイルをダウンロード
+      </li>
+      <li>ダウンロードしたファイルを <code>xlsx.full.min.js</code> という名前で<br>
+          <code>index.html</code> と同じフォルダに保存</li>
+      <li>ページを再読み込み（F5）</li>
+    </ol>
+    <button onclick="document.getElementById('xlsxWarning').style.display='none'"
+            class="btn btn-primary" type="button" style="margin-top:12px;">閉じる</button>
+  </div>
+</div>
+
+<!-- モバイル用ボトムナビゲーション -->
+<nav class="mobile-bottom-nav" id="mobileBottomNav">
+  <a class="mob-nav-item active" data-target="section-settings" href="#section-settings">
+    <span class="mob-nav-icon">⚙️</span>
+    <span class="mob-nav-label">STEP1</span>
+  </a>
+  <a class="mob-nav-item" data-target="section-staff-management" href="#section-staff-management">
+    <span class="mob-nav-icon">👥</span>
+    <span class="mob-nav-label">STEP2</span>
+  </a>
+  <a class="mob-nav-item" data-target="section-upload" href="#section-upload">
+    <span class="mob-nav-icon">📁</span>
+    <span class="mob-nav-label">STEP3</span>
+  </a>
+  <a class="mob-nav-item" data-target="section-staff" href="#section-staff" id="mobNavStep4">
+    <span class="mob-nav-icon">📋</span>
+    <span class="mob-nav-label">STEP4</span>
+  </a>
+  <a class="mob-nav-item" data-target="section-individual-settings" href="#section-individual-settings" id="mobNavStep5">
+    <span class="mob-nav-icon">⭐</span>
+    <span class="mob-nav-label">STEP5</span>
+  </a>
+  <a class="mob-nav-item" data-target="section-result" href="#section-result" id="mobNavResult">
+    <span class="mob-nav-icon">📊</span>
+    <span class="mob-nav-label">結果</span>
+  </a>
+</nav>
+
+<script src="script.js"></script>
+</body>
+</html>
