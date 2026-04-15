@@ -199,50 +199,116 @@
       </div>
     </section>
 
-    <!-- ─── STEP 3: ファイルアップロード ─── -->
+    <!-- ─── STEP 3: ファイルアップロード / 手入力 ─── -->
     <section class="card collapsible-card" id="section-upload">
       <div class="card-header step-header" data-target="upload-body">
         <span class="step-badge">STEP 3</span>
-        <h2>Excelファイルのアップロード</h2>
+        <h2>希望休の入力</h2>
         <span class="collapse-icon">▲</span>
       </div>
       <div class="card-body collapsible-body" id="upload-body">
 
-        <!-- ドラッグ＆ドロップエリア -->
-        <div id="dropzone" class="dropzone">
-          <div class="dropzone-icon">📁</div>
-          <p class="dropzone-main">ファイルをここにドラッグ＆ドロップ</p>
-          <p class="dropzone-sub">または</p>
-          <button id="uploadBtn" class="btn btn-secondary" type="button">ファイルを選択</button>
-          <p class="dropzone-hint">対応形式：.xlsx / .xls（複数ファイル同時選択可）</p>
+        <!-- タブ切り替え -->
+        <div class="upload-tabs">
+          <button class="upload-tab upload-tab-active" id="tab-excel"
+                  type="button" onclick="switchUploadTab('excel')">
+            📁 Excelアップロード
+          </button>
+          <button class="upload-tab" id="tab-manual"
+                  type="button" onclick="switchUploadTab('manual')">
+            ✏️ 手入力
+          </button>
         </div>
-        <input type="file" id="fileInput" multiple accept=".xlsx,.xls" hidden>
 
-        <!-- Excelフォーマット説明 -->
-        <div class="excel-format-note">
-          <h3>📋 スタッフ提出Excelのフォーマット</h3>
-          <table class="format-table">
-            <thead>
-              <tr><th>A列（日付）</th><th>B列（希望内容）</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>21〜翌月20（日の数値）</td>
-                <td>空欄 ＝ 出勤可能</td>
-              </tr>
-              <tr>
-                <td></td>
-                <td class="cell-red">休（赤） ＝ 絶対休み</td>
-              </tr>
-              <tr>
-                <td></td>
-                <td class="cell-blue">休（青） ＝ できれば休み</td>
-              </tr>
-            </tbody>
-          </table>
-          <p class="format-note">※ 登録済みスタッフ名がファイル名に含まれていれば自動で紐づけされます</p>
-          <p class="format-note">※ B列は「休（赤）」「休（青）」の文字を含むセルを自動判定します</p>
-        </div>
+        <!-- ─ Excelパネル ─ -->
+        <div id="panel-excel">
+
+          <!-- ドラッグ＆ドロップエリア -->
+          <div id="dropzone" class="dropzone">
+            <div class="dropzone-icon">📁</div>
+            <p class="dropzone-main">ファイルをここにドラッグ＆ドロップ</p>
+            <p class="dropzone-sub">または</p>
+            <button id="uploadBtn" class="btn btn-secondary" type="button">ファイルを選択</button>
+            <p class="dropzone-hint">対応形式：.xlsx / .xls（複数ファイル同時選択可）</p>
+          </div>
+          <input type="file" id="fileInput" multiple accept=".xlsx,.xls" hidden>
+
+          <!-- Excelフォーマット説明 -->
+          <div class="excel-format-note">
+            <h3>📋 スタッフ提出Excelのフォーマット</h3>
+            <table class="format-table">
+              <thead>
+                <tr><th>A列（日付）</th><th>B列（希望内容）</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>21〜翌月20（日の数値）</td>
+                  <td>空欄 ＝ 出勤可能</td>
+                </tr>
+                <tr>
+                  <td></td>
+                  <td class="cell-red">休（赤） ＝ 絶対休み</td>
+                </tr>
+                <tr>
+                  <td></td>
+                  <td class="cell-blue">休（青） ＝ できれば休み</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="format-note">※ 登録済みスタッフ名がファイル名に含まれていれば自動で紐づけされます</p>
+            <p class="format-note">※ B列は「休（赤）」「休（青）」の文字を含むセルを自動判定します</p>
+          </div>
+        </div><!-- /#panel-excel -->
+
+        <!-- ─ 手入力パネル ─ -->
+        <div id="panel-manual" style="display:none">
+          <div class="manual-input-wrapper">
+
+            <!-- スタッフ選択 -->
+            <div class="manual-staff-row">
+              <div class="form-field" style="flex:1; min-width:140px;">
+                <label class="manual-label">スタッフ選択（登録済み）</label>
+                <select id="manualStaffSelect" class="select-input"
+                        onchange="onManualStaffChange(this.value)">
+                  <option value="">-- 選択 --</option>
+                </select>
+              </div>
+              <div class="manual-or-sep">または</div>
+              <div class="form-field" style="flex:1; min-width:120px;">
+                <label class="manual-label">直接入力（未登録の場合）</label>
+                <input type="text" id="manualStaffNameInput" class="form-input"
+                       placeholder="名前を入力"
+                       oninput="onManualNameInputChange(this.value)">
+              </div>
+            </div>
+
+            <!-- 凡例 -->
+            <div class="manual-legend">
+              <span>セルをクリックして希望を入力：</span>
+              <span><span class="mgrid-btn mgrid-avail mgrid-legend-samp">空</span> 出勤可</span>
+              <span><span class="mgrid-btn mgrid-red  mgrid-legend-samp">赤</span> 絶対休</span>
+              <span><span class="mgrid-btn mgrid-blue mgrid-legend-samp">青</span> 希望休</span>
+              <span class="manual-legend-hint">（クリックするたびに 空→赤→青→空 と切り替わります）</span>
+            </div>
+
+            <!-- 日付グリッド -->
+            <div id="manualDayGrid" class="manual-day-grid"></div>
+
+            <!-- 操作ボタン -->
+            <div class="manual-actions">
+              <button class="btn btn-primary" type="button" onclick="registerManualStaff()">
+                ✅ 登録・更新
+              </button>
+              <button class="btn btn-secondary" type="button" onclick="clearManualInput()">
+                🗑 クリア
+              </button>
+            </div>
+
+            <!-- 登録済み一覧 -->
+            <div id="manualRegisteredList"></div>
+
+          </div>
+        </div><!-- /#panel-manual -->
 
       </div>
     </section>

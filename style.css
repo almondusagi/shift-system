@@ -1408,6 +1408,199 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════
+ * STEP3 タブ（Excelアップロード / 手入力）
+ * ═══════════════════════════════════════════════════════════ */
+.upload-tabs {
+  display:        flex;
+  gap:            4px;
+  margin-bottom:  18px;
+  border-bottom:  2px solid var(--color-border);
+}
+
+.upload-tab {
+  padding:        8px 18px;
+  border:         1px solid var(--color-border);
+  border-bottom:  none;
+  border-radius:  var(--radius-sm) var(--radius-sm) 0 0;
+  background:     var(--color-bg);
+  color:          var(--color-text-muted);
+  font-family:    var(--font-main);
+  font-size:      13px;
+  font-weight:    700;
+  cursor:         pointer;
+  transition:     background 0.15s, color 0.15s;
+  position:       relative;
+  bottom:         -2px;
+}
+
+.upload-tab:hover { background: #EBF0F8; color: var(--color-primary); }
+
+.upload-tab-active {
+  background:   white;
+  color:        var(--color-primary);
+  border-color: var(--color-primary);
+  border-bottom: 2px solid white;
+}
+
+/* ═══════════════════════════════════════════════════════════
+ * 手入力パネル
+ * ═══════════════════════════════════════════════════════════ */
+.manual-input-wrapper {
+  display:        flex;
+  flex-direction: column;
+  gap:            16px;
+}
+
+.manual-staff-row {
+  display:     flex;
+  align-items: flex-end;
+  gap:         12px;
+  flex-wrap:   wrap;
+}
+
+.manual-or-sep {
+  font-size:      12px;
+  color:          var(--color-text-muted);
+  padding-bottom: 10px;
+  flex-shrink:    0;
+}
+
+.manual-label {
+  font-size:      11px;
+  font-weight:    700;
+  color:          var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display:        block;
+  margin-bottom:  4px;
+}
+
+.manual-legend {
+  display:       flex;
+  align-items:   center;
+  gap:           12px;
+  flex-wrap:     wrap;
+  font-size:     12px;
+  color:         var(--color-text-muted);
+  padding:       8px 12px;
+  background:    var(--color-bg);
+  border-radius: var(--radius-sm);
+  border:        1px solid var(--color-border);
+}
+
+.manual-legend span { display: flex; align-items: center; gap: 4px; }
+.manual-legend-hint { font-size: 11px; color: var(--color-text-light); }
+
+/* ─── 日付グリッド ─── */
+.manual-day-grid {
+  display:               grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap:                   6px;
+}
+
+.mgrid-cell {
+  display:        flex;
+  flex-direction: column;
+  align-items:    center;
+  gap:            2px;
+  padding:        6px 2px;
+  border-radius:  var(--radius-sm);
+  background:     var(--color-card-alt);
+  border:         1px solid var(--color-border);
+  transition:     background 0.1s;
+}
+
+.mgrid-cell:hover       { background: #EBF0F8; }
+.mgrid-cell.mgrid-sun   { background: #FFF5F5; border-color: #FECACA; }
+.mgrid-cell.mgrid-sat   { background: #EFF6FF; border-color: #BFDBFE; }
+
+.mgrid-date {
+  font-size:   10px;
+  font-weight: 700;
+  color:       var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.mgrid-dow { font-size: 9px; color: var(--color-text-light); }
+
+.mgrid-btn {
+  min-width:       36px;
+  height:          28px;
+  border:          1.5px solid;
+  border-radius:   var(--radius-xs);
+  cursor:          pointer;
+  font-size:       11px;
+  font-weight:     700;
+  font-family:     var(--font-main);
+  transition:      filter 0.12s, transform 0.1s;
+  padding:         0 4px;
+  display:         flex;
+  align-items:     center;
+  justify-content: center;
+}
+
+.mgrid-btn:hover  { filter: brightness(0.92); }
+.mgrid-btn:active { transform: scale(0.93); }
+
+.mgrid-avail {
+  background:   var(--color-off-bg);
+  color:        var(--color-off-text);
+  border-color: var(--color-off-border);
+}
+
+.mgrid-red {
+  background:   var(--color-off-red-bg);
+  color:        var(--color-off-red-text);
+  border-color: var(--color-off-red-border);
+}
+
+.mgrid-blue {
+  background:   var(--color-off-blue-bg);
+  color:        var(--color-off-blue-text);
+  border-color: var(--color-off-blue-border);
+}
+
+.mgrid-legend-samp {
+  min-width:      24px;
+  height:         20px;
+  font-size:      10px;
+  pointer-events: none;
+}
+
+.manual-actions         { display: flex; gap: 10px; flex-wrap: wrap; }
+.manual-actions .btn    { min-width: 120px; }
+
+.manual-registered-title {
+  font-size:     13px;
+  font-weight:   700;
+  color:         var(--color-primary);
+  margin-bottom: 8px;
+}
+
+.manual-registered-grid { display: flex; flex-direction: column; gap: 6px; }
+
+.manual-reg-item {
+  display:       flex;
+  align-items:   center;
+  gap:           10px;
+  padding:       8px 14px;
+  background:    white;
+  border:        1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  flex-wrap:     wrap;
+}
+
+.manual-reg-name {
+  font-weight: 700;
+  font-size:   13px;
+  color:       var(--color-primary);
+  flex:        1;
+  min-width:   80px;
+}
+
+.manual-reg-badges { display: flex; gap: 4px; flex-wrap: wrap; }
+
+/* ═══════════════════════════════════════════════════════════
  * コミュニティ ±0厳守バッジ
  * ═══════════════════════════════════════════════════════════ */
 .strict-badge {
@@ -1673,6 +1866,17 @@ body {
   .staff-card-v2 { gap: 8px 10px; padding: 12px 10px; }
   .staff-name-v2 { font-size: 15px; padding-bottom: 10px; }
 
+  /* ─ STEP3 タブ ─ */
+  .upload-tab { padding: 8px 12px; font-size: 12px; }
+
+  /* ─ 手入力グリッド ─ */
+  .manual-day-grid { grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 4px; }
+  .mgrid-btn       { min-width: 32px; height: 26px; font-size: 10px; }
+  .mgrid-date      { font-size: 9px; }
+  .manual-actions .btn { flex: 1; }
+  .manual-staff-row { flex-direction: column; align-items: stretch; }
+  .manual-or-sep    { padding-bottom: 0; text-align: center; }
+
   /* ─ 結果ヘッダー ─ */
   .result-header-actions {
     flex-direction: column;
@@ -1832,4 +2036,3 @@ body {
   .mob-nav-label  { font-size: 8px; }
   .mob-nav-icon   { font-size: 18px; }
 }
-

@@ -90,6 +90,15 @@ const AppState = {
   /** 生成結果 */
   results: [],
 
+  /**
+   * 手入力セクションの作業中データ
+   * @type {{ staffName: string, requests: Object.<number,'red'|'blue'> }}
+   */
+  manualInput: {
+    staffName: '',
+    requests:  {}
+  },
+
   /** 現在のシフト期間キャッシュ */
   _periodCache: null
 };
@@ -116,6 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
   checkXLSXLibrary();
   setupCollapsibleCards();
   setupMobileBottomNav();
+  initManualInputSection();
 });
 
 /* ============================================================
@@ -932,6 +942,7 @@ async function handleFiles(files) {
     document.getElementById('section-staff').style.display   = '';
     document.getElementById('section-individual-settings').style.display = '';
     document.getElementById('section-actions').style.display = '';
+    updateManualRegisteredList();
   }
 
   document.getElementById('fileInput').value = '';
@@ -2109,6 +2120,10 @@ function getShiftTooltip(shift, name, periodDay) {
 
 /* ============================================================
  * 具体的な時間帯の計算
+ * ─────────────────────────────────────────────────────────────
+ * 早番・遅番の「担当回数カウンタ」を全期間にわたって累積し、
+ * 各日の割り当て時に「その時点で累計が最も少ない人」を優先する。
+ * → 早番/遅番ができる人が複数いる場合に偏りが出なくなる。
  * ============================================================ */
 
 function formatTimeShort(h) {
@@ -2122,94 +2137,120 @@ function formatTimeShort(h) {
 
 function calculateAllShiftTimes(period) {
   const totalDays = period.totalDays;
-  const globalBaseStart = AppState.baseWorkStart;
-  const globalBaseEnd = AppState.baseWorkEnd;
+
+  // ── 早番・遅番の累計カウンタ（期間を通じて積算）──
+  // これを参照して「より少ない人」を優先することで偏りを防ぐ
+  const earlyShiftCounts = {};
+  const lateShiftCounts  = {};
+  AppState.results.forEach(r => {
+    earlyShiftCounts[r.name] = 0;
+    lateShiftCounts[r.name]  = 0;
+  });
 
   for (let d = 0; d < totalDays; d++) {
     const dayTimes = getDayWorkTimes(d);
     const dayStart = dayTimes.start;
     const dayEnd   = dayTimes.end;
 
-    let earlyReq = getEarlyCountForDay(d);
-    let lateReq  = getLateCountForDay(d);
+    const earlyReq = getEarlyCountForDay(d);
+    const lateReq  = getLateCountForDay(d);
 
     const working = AppState.results.filter(r => r.shifts[d] === 'work');
     
-    // カスタム指定時間を持つスタッフを探す用
+    // 個別時間指定のカスタム設定を取得
     const customAssignedSettings = AppState.individualSettings.filter(s => 
       s.staffAssignmentType === 'specific' && s.dates.includes(d)
     );
 
+    // ── pool を構築 ──
     const pools = working.map(r => {
-      // Bug Fix①: r.staff は存在しないため、result オブジェクトのプロパティを直接使う。
-      // hasBreak5h だけ AppState.staffList から補完する（result には保持されていないため）。
       const staffObj = AppState.staffList.find(s => s.name === r.name);
       
+      // 個別設定に時間指定があれば優先
       let forcedStart = null;
-      let forcedEnd = null;
-      // 個別設定で最も後に追加されたものを優先
+      let forcedEnd   = null;
       for (let i = customAssignedSettings.length - 1; i >= 0; i--) {
         const as = customAssignedSettings[i].assignedStaff.find(a => a.name === r.name);
         if (as && as.timeType === 'custom') {
           forcedStart = as.customStart;
-          forcedEnd = as.customEnd;
+          forcedEnd   = as.customEnd;
           break;
         }
       }
 
-      const dh = r.dailyHours;   // generateShiftForStaff が result に設定済み
+      const dh = r.dailyHours;
       let breakH = 0;
       if (dh > 5) breakH = 1;
       else if (dh === 5 && (staffObj ? staffObj.settings.hasBreak5h !== false : true)) breakH = 1;
       
-      const totalSpan = forcedStart !== null ? (Math.round((forcedEnd - forcedStart) * 100) / 100) : (dh + breakH);
+      const totalSpan = forcedStart !== null
+        ? Math.round((forcedEnd - forcedStart) * 100) / 100
+        : dh + breakH;
 
-      // availableStart / availableEnd も result に設定済み
-      const sStart = forcedStart !== null ? forcedStart : (r.availableStart !== null ? r.availableStart : dayStart);
-      const sEnd   = forcedEnd !== null ? forcedEnd : (r.availableEnd   !== null ? r.availableEnd   : dayEnd);
+      const sStart = forcedStart !== null ? forcedStart
+                   : (r.availableStart !== null ? r.availableStart : dayStart);
+      const sEnd   = forcedEnd   !== null ? forcedEnd
+                   : (r.availableEnd   !== null ? r.availableEnd   : dayEnd);
 
       const boundedStart = Math.max(sStart, dayStart);
-      const boundedEnd   = Math.min(sEnd, dayEnd);
+      const boundedEnd   = Math.min(sEnd,   dayEnd);
 
-      const canEarly = forcedStart === null && (r.availableStart === null || r.availableStart <= dayStart);
-      const canLate  = forcedEnd === null && (r.availableEnd === null || r.availableEnd >= dayEnd);
-      
-      return { 
-        result: r, 
-        totalSpan, 
-        canEarly, 
-        canLate, 
-        boundedStart, 
+      // 個別時間指定がある場合は早番/遅番の公平分散ロジックから除外
+      const canEarly = forcedStart === null &&
+                       (r.availableStart === null || r.availableStart <= dayStart);
+      const canLate  = forcedEnd   === null &&
+                       (r.availableEnd   === null || r.availableEnd   >= dayEnd);
+
+      return {
+        result:        r,
+        totalSpan,
+        canEarly,
+        canLate,
+        boundedStart,
         boundedEnd,
         assignedStart: forcedStart !== null ? forcedStart : null,
-        assignedEnd: forcedEnd !== null ? forcedEnd : null,
-        role: forcedStart !== null ? 'custom' : ''
+        assignedEnd:   forcedEnd   !== null ? forcedEnd   : null,
+        role:          forcedStart !== null ? 'custom' : ''
       };
     });
 
+    // ── 早番割り当て：累計が少ない人から優先 ──
+    // canEarly な未割り当て pool を earlyShiftCounts 昇順にソートして先頭から割り当て
+    const earlyPool = pools
+      .filter(p => p.canEarly && p.role === '')
+      .sort((a, b) =>
+        (earlyShiftCounts[a.result.name] || 0) - (earlyShiftCounts[b.result.name] || 0)
+      );
+
     let assignedEarly = 0;
-    for (const p of pools) {
+    for (const p of earlyPool) {
       if (assignedEarly >= earlyReq) break;
-      if (p.canEarly && p.role === '') {
-        p.role = 'early';
-        p.assignedStart = dayStart;
-        p.assignedEnd   = dayStart + p.totalSpan;
-        assignedEarly++;
-      }
+      p.role          = 'early';
+      p.assignedStart = dayStart;
+      p.assignedEnd   = dayStart + p.totalSpan;
+      earlyShiftCounts[p.result.name] = (earlyShiftCounts[p.result.name] || 0) + 1;
+      assignedEarly++;
     }
+
+    // ── 遅番割り当て：累計が少ない人から優先 ──
+    // canLate な未割り当て pool を lateShiftCounts 昇順にソートして先頭から割り当て
+    const latePool = pools
+      .filter(p => p.canLate && p.role === '')
+      .sort((a, b) =>
+        (lateShiftCounts[a.result.name] || 0) - (lateShiftCounts[b.result.name] || 0)
+      );
 
     let assignedLate = 0;
-    for (let i = pools.length - 1; i >= 0; i--) {
-      const p = pools[i];
+    for (const p of latePool) {
       if (assignedLate >= lateReq) break;
-      if (p.canLate && p.role === '') {
-        p.role = 'late';
-        p.assignedEnd   = dayEnd;
-        p.assignedStart = dayEnd - p.totalSpan;
-        assignedLate++;
-      }
+      p.role          = 'late';
+      p.assignedEnd   = dayEnd;
+      p.assignedStart = dayEnd - p.totalSpan;
+      lateShiftCounts[p.result.name] = (lateShiftCounts[p.result.name] || 0) + 1;
+      assignedLate++;
     }
 
+    // ── 通常（normal）割り当て ──
     for (const p of pools) {
       if (p.role === '') {
         p.role = 'normal';
@@ -2219,8 +2260,8 @@ function calculateAllShiftTimes(period) {
           en = p.boundedEnd;
           st = en - p.totalSpan;
           if (st < p.boundedStart) {
-             st = p.boundedStart;
-             en = st + p.totalSpan;
+            st = p.boundedStart;
+            en = st + p.totalSpan;
           }
         }
         p.assignedStart = st;
@@ -2228,15 +2269,23 @@ function calculateAllShiftTimes(period) {
       }
     }
 
+    // 各スタッフの時間帯を result に保存（role も保存して結果表示で利用可能にする）
     for (const p of pools) {
-       p.result.shiftTimes = p.result.shiftTimes || {};
-       p.result.shiftTimes[d] = {
-         start: p.assignedStart,
-         end: p.assignedEnd,
-         totalSpan: p.totalSpan,
-       };
+      p.result.shiftTimes = p.result.shiftTimes || {};
+      p.result.shiftTimes[d] = {
+        start:     p.assignedStart,
+        end:       p.assignedEnd,
+        totalSpan: p.totalSpan,
+        role:      p.role
+      };
     }
   }
+
+  // 集計した早番/遅番の回数を result に保存（将来的な表示やデバッグ用）
+  AppState.results.forEach(r => {
+    r.earlyShiftTotal = earlyShiftCounts[r.name] || 0;
+    r.lateShiftTotal  = lateShiftCounts[r.name]  || 0;
+  });
 }
 
 /* ============================================================
@@ -2350,6 +2399,7 @@ function resetAll() {
   AppState.results   = [];
   AppState.customWorkTimes    = [];
   AppState.earlyLateOverrides = [];
+  AppState.manualInput = { staffName: '', requests: {} };
 
   document.getElementById('section-staff').style.display   = 'none';
   document.getElementById('section-actions').style.display = 'none';
@@ -2358,8 +2408,20 @@ function resetAll() {
   document.getElementById('staffList').innerHTML   = '';
   document.getElementById('resultTable').innerHTML = '';
   document.getElementById('fileInput').value       = '';
-  document.getElementById('customTimesContainer').innerHTML    = '';
-  document.getElementById('shiftOverridesContainer').innerHTML = '';
+
+  const ctc = document.getElementById('customTimesContainer');
+  if (ctc) ctc.innerHTML = '';
+  const soc = document.getElementById('shiftOverridesContainer');
+  if (soc) soc.innerHTML = '';
+
+  // 手入力エリアもリセット
+  const sel = document.getElementById('manualStaffSelect');
+  if (sel) sel.value = '';
+  const ni = document.getElementById('manualStaffNameInput');
+  if (ni) ni.value = '';
+  AppState.manualInput.requests = {};
+  renderManualDayGrid();
+  updateManualRegisteredList();
 
   showToast('リセットしました', 'info');
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2462,6 +2524,293 @@ function updateMobileNavOnScroll() {
     if (el.getBoundingClientRect().top <= 120) current = id;
   }
   setMobileNavActive(current);
+}
+
+/* ============================================================
+ * 手入力セクション（STEP3 タブ）
+ * ─────────────────────────────────────────────────────────────
+ * Excelアップロードの代わりに、スタッフを選択して各日の希望を
+ * 画面上で直接クリック入力できる機能。
+ * ============================================================ */
+
+/**
+ * タブ切り替え（Excel / 手入力）
+ * @param {'excel'|'manual'} tab
+ */
+function switchUploadTab(tab) {
+  document.getElementById('panel-excel').style.display  = tab === 'excel'  ? '' : 'none';
+  document.getElementById('panel-manual').style.display = tab === 'manual' ? '' : 'none';
+  document.getElementById('tab-excel').classList.toggle('upload-tab-active',  tab === 'excel');
+  document.getElementById('tab-manual').classList.toggle('upload-tab-active', tab === 'manual');
+
+  if (tab === 'manual') {
+    // タブ表示時にスタッフ選択肢と日付グリッドを最新化する
+    initManualInputSection();
+  }
+}
+
+/**
+ * 手入力セクションを初期化する
+ * ・スタッフセレクトの選択肢を登録済みスタッフで埋める
+ * ・日付グリッドを描画する
+ */
+function initManualInputSection() {
+  const sel = document.getElementById('manualStaffSelect');
+  if (!sel) return;
+
+  // 現在の選択値を保持
+  const prevName = AppState.manualInput.staffName;
+
+  sel.innerHTML = '<option value="">-- スタッフを選択 --</option>';
+  AppState.registeredStaff.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value       = escapeHtml(s.name);
+    opt.textContent = s.name;
+    if (s.name === prevName) opt.selected = true;
+    sel.appendChild(opt);
+  });
+
+  renderManualDayGrid();
+  updateManualRegisteredList();
+}
+
+/**
+ * スタッフセレクト変更時
+ * @param {string} value - selected staff name
+ */
+function onManualStaffChange(value) {
+  AppState.manualInput.staffName = value;
+  // テキスト入力欄をクリア（セレクト優先）
+  const nameInput = document.getElementById('manualStaffNameInput');
+  if (nameInput && value) nameInput.value = '';
+
+  // 既にそのスタッフのデータが staffList にあれば requests を復元
+  const existing = AppState.staffList.find(s => s.name === value);
+  AppState.manualInput.requests = existing ? { ...existing.requests } : {};
+
+  renderManualDayGrid();
+}
+
+/**
+ * テキスト入力欄変更時（未登録スタッフの直接入力）
+ */
+function onManualNameInputChange(value) {
+  AppState.manualInput.staffName = value.trim();
+  // セレクトをリセット
+  const sel = document.getElementById('manualStaffSelect');
+  if (sel) sel.value = '';
+
+  const existing = AppState.staffList.find(s => s.name === value.trim());
+  AppState.manualInput.requests = existing ? { ...existing.requests } : {};
+
+  renderManualDayGrid();
+}
+
+/**
+ * 日付グリッドを描画する
+ * 各セルは「空欄 → 赤 → 青 → 空欄」の3段階をクリックで切り替え
+ */
+function renderManualDayGrid() {
+  const grid = document.getElementById('manualDayGrid');
+  if (!grid) return;
+
+  const period = getCurrentPeriod();
+  const reqs   = AppState.manualInput.requests;
+
+  grid.innerHTML = '';
+
+  period.days.forEach((pd, idx) => {
+    const reqType = reqs[idx] || '';
+    const dow     = pd.dow;
+
+    const cell = document.createElement('div');
+    cell.className = `mgrid-cell${dow === 0 ? ' mgrid-sun' : dow === 6 ? ' mgrid-sat' : ''}`;
+
+    // 日付ラベル
+    const label = document.createElement('div');
+    label.className   = 'mgrid-date';
+    label.textContent = `${pd.month}/${pd.day}`;
+    cell.appendChild(label);
+
+    // 曜日ラベル
+    const dowLabel = document.createElement('div');
+    dowLabel.className   = 'mgrid-dow';
+    dowLabel.textContent = DAY_NAMES[dow];
+    cell.appendChild(dowLabel);
+
+    // 状態ボタン
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.dayIdx = idx;
+    btn.addEventListener('click', () => toggleManualDayRequest(idx));
+
+    if (reqType === 'red') {
+      btn.className   = 'mgrid-btn mgrid-red';
+      btn.textContent = '赤';
+      btn.title       = '絶対休み（クリックで「青」に変更）';
+    } else if (reqType === 'blue') {
+      btn.className   = 'mgrid-btn mgrid-blue';
+      btn.textContent = '青';
+      btn.title       = '希望休（クリックで「空欄」に変更）';
+    } else {
+      btn.className   = 'mgrid-btn mgrid-avail';
+      btn.textContent = '空';
+      btn.title       = '出勤可能（クリックで「赤」に変更）';
+    }
+
+    cell.appendChild(btn);
+    grid.appendChild(cell);
+  });
+}
+
+/**
+ * 日付セルのリクエスト種別を切り替える
+ * 空欄 → 赤 → 青 → 空欄 の順に循環
+ * @param {number} dayIdx - 期間内のインデックス
+ */
+function toggleManualDayRequest(dayIdx) {
+  const cur = AppState.manualInput.requests[dayIdx] || '';
+  if (!cur) {
+    AppState.manualInput.requests[dayIdx] = 'red';
+  } else if (cur === 'red') {
+    AppState.manualInput.requests[dayIdx] = 'blue';
+  } else {
+    delete AppState.manualInput.requests[dayIdx];
+  }
+  renderManualDayGrid();
+}
+
+/**
+ * 手入力データをスタッフリストに登録・更新する
+ */
+function registerManualStaff() {
+  // スタッフ名を確定（セレクト優先、なければテキスト入力）
+  const selVal   = (document.getElementById('manualStaffSelect')?.value   || '').trim();
+  const inputVal = (document.getElementById('manualStaffNameInput')?.value || '').trim();
+  const name     = selVal || inputVal;
+
+  if (!name) {
+    showToast('スタッフ名を選択または入力してください。', 'error');
+    return;
+  }
+
+  AppState.manualInput.staffName = name;
+
+  // 登録済みスタッフからマスタ情報を取得
+  const regStaff = AppState.registeredStaff.find(s => s.name === name);
+
+  const settings = regStaff ? {
+    category:       regStaff.category,
+    monthlyHours:   regStaff.monthlyHours   ?? 160,
+    weeklyHours:    regStaff.weeklyHours     ?? 40,
+    dailyHours:     regStaff.dailyHours      ?? 8,
+    availableStart: regStaff.availableStart  ?? null,
+    availableEnd:   regStaff.availableEnd    ?? null
+  } : {
+    category:       '',
+    monthlyHours:   160,
+    weeklyHours:    40,
+    dailyHours:     8,
+    availableStart: null,
+    availableEnd:   null
+  };
+
+  const newEntry = {
+    name,
+    matchedRegistered: regStaff || null,
+    requests:          { ...AppState.manualInput.requests },
+    settings
+  };
+
+  // 同名が既存なら requests を更新、なければ新規追加
+  const existingIdx = AppState.staffList.findIndex(s => s.name === name);
+  if (existingIdx >= 0) {
+    AppState.staffList[existingIdx].requests = newEntry.requests;
+    showToast(`「${name}」の希望休を更新しました。`, 'info');
+  } else {
+    AppState.staffList.push(newEntry);
+    showToast(`「${name}」を追加しました。`, 'success');
+  }
+
+  // スタッフ設定セクションを表示
+  renderStaffList();
+  document.getElementById('section-staff').style.display              = '';
+  document.getElementById('section-individual-settings').style.display = '';
+  document.getElementById('section-actions').style.display            = '';
+
+  // 入力エリアをリセット
+  AppState.manualInput.staffName = '';
+  AppState.manualInput.requests  = {};
+  const sel = document.getElementById('manualStaffSelect');
+  if (sel) sel.value = '';
+  const ni = document.getElementById('manualStaffNameInput');
+  if (ni) ni.value = '';
+  renderManualDayGrid();
+  updateManualRegisteredList();
+}
+
+/**
+ * 手入力の作業中データをクリアする
+ */
+function clearManualInput() {
+  AppState.manualInput.requests = {};
+  renderManualDayGrid();
+  showToast('入力内容をクリアしました。', 'info');
+}
+
+/**
+ * 手入力で登録済みのスタッフ一覧を表示する
+ */
+function updateManualRegisteredList() {
+  const container = document.getElementById('manualRegisteredList');
+  if (!container) return;
+
+  if (AppState.staffList.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const redCount = (requests) =>
+    Object.values(requests).filter(v => v === 'red').length;
+  const blueCount = (requests) =>
+    Object.values(requests).filter(v => v === 'blue').length;
+
+  container.innerHTML = `
+    <div class="manual-registered-title">✅ 登録済みスタッフ（${AppState.staffList.length}名）</div>
+    <div class="manual-registered-grid">
+      ${AppState.staffList.map((s, idx) => `
+        <div class="manual-reg-item">
+          <span class="manual-reg-name">${escapeHtml(s.name)}</span>
+          <span class="manual-reg-badges">
+            ${redCount(s.requests)  > 0 ? `<span class="badge badge-red">赤:${redCount(s.requests)}日</span>` : ''}
+            ${blueCount(s.requests) > 0 ? `<span class="badge badge-blue">青:${blueCount(s.requests)}日</span>` : ''}
+            ${redCount(s.requests) === 0 && blueCount(s.requests) === 0 ? '<span class="badge-none">希望なし</span>' : ''}
+          </span>
+          <button class="btn-remove" type="button" onclick="removeStaffFromManualList(${idx})">削除</button>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+/**
+ * 手入力の登録済み一覧からスタッフを削除する
+ * @param {number} idx
+ */
+function removeStaffFromManualList(idx) {
+  const name = AppState.staffList[idx].name;
+  AppState.staffList.splice(idx, 1);
+
+  if (AppState.staffList.length === 0) {
+    document.getElementById('section-staff').style.display              = 'none';
+    document.getElementById('section-individual-settings').style.display = 'none';
+    document.getElementById('section-actions').style.display            = 'none';
+  } else {
+    renderStaffList();
+  }
+
+  updateManualRegisteredList();
+  showToast(`「${name}」を削除しました。`, 'info');
 }
 
 /* ============================================================
