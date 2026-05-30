@@ -3188,17 +3188,32 @@ function showToast(message, type = 'info', duration = 4000) {
 /* ============================================================
  * 日別スケジュール モーダル (Outlook風タイムライン)
  * ============================================================ */
-function openDailyScheduleModal(dayIndex, pd) {
+function openDailyScheduleModal(dayIndex) {
+  const period = getCurrentPeriod();
+  if (!period || !period.days || !period.days[dayIndex]) return;
+  
+  const pd = period.days[dayIndex];
   const modal = document.getElementById('dailyScheduleModal');
   const title = document.getElementById('dailyScheduleTitle');
   const content = document.getElementById('dailyScheduleContent');
+  const prevBtn = document.getElementById('prevDayBtn');
+  const nextBtn = document.getElementById('nextDayBtn');
   
   if (!modal || !title || !content) return;
   
-  title.textContent = `${pd.month}月${pd.day}日(${DAY_NAMES[pd.dow]}) のスケジュール`;
+  title.textContent = `${pd.month}月${pd.day}日(${DAY_NAMES[pd.dow]})`;
   
-  // その日の出勤スタッフを取得
-  const workers = AppState.results.filter(r => r.shifts[dayIndex] === 'work' && r.shiftTimes && r.shiftTimes[dayIndex]);
+  if (prevBtn) {
+    prevBtn.disabled = (dayIndex === 0);
+    prevBtn.onclick = () => openDailyScheduleModal(dayIndex - 1);
+  }
+  if (nextBtn) {
+    nextBtn.disabled = (dayIndex === period.totalDays - 1);
+    nextBtn.onclick = () => openDailyScheduleModal(dayIndex + 1);
+  }
+  
+  // その日の出勤スタッフを取得（shiftTimesがなくてもshiftsが'work'なら取得）
+  const workers = AppState.results.filter(r => r.shifts[dayIndex] === 'work');
   
   if (workers.length === 0) {
     content.innerHTML = '<p style="color:var(--color-text-muted);">出勤スタッフはいません。</p>';
@@ -3206,16 +3221,23 @@ function openDailyScheduleModal(dayIndex, pd) {
     return;
   }
   
+  // 時間帯の抽出（ない場合はデフォルト9:00〜18:00とする）
+  const workerTimes = workers.map(w => {
+    let t = (w.shiftTimes && w.shiftTimes[dayIndex]) ? w.shiftTimes[dayIndex] : null;
+    let start = t && typeof t.start === 'number' && !isNaN(t.start) ? t.start : 9;
+    let end = t && typeof t.end === 'number' && !isNaN(t.end) ? t.end : start + 8;
+    return { name: w.name, category: w.category, start, end };
+  });
+  
   // 最小時間と最大時間を求める
   let minStart = 24;
   let maxEnd = 0;
-  workers.forEach(w => {
-    const t = w.shiftTimes[dayIndex];
-    if (t.start < minStart) minStart = Math.floor(t.start);
-    if (t.end > maxEnd) maxEnd = Math.ceil(t.end);
+  workerTimes.forEach(wt => {
+    if (wt.start < minStart) minStart = Math.floor(wt.start);
+    if (wt.end > maxEnd) maxEnd = Math.ceil(wt.end);
   });
   
-  if (minStart > maxEnd) { minStart = 8; maxEnd = 22; }
+  if (minStart > maxEnd || minStart === 24) { minStart = 8; maxEnd = 22; }
   minStart = Math.max(0, minStart - 1);
   maxEnd = Math.min(30, maxEnd + 1); // 翌日6時まで
   
@@ -3234,10 +3256,9 @@ function openDailyScheduleModal(dayIndex, pd) {
   html += '</div>';
   
   // スタッフごとのバー
-  workers.forEach(w => {
-    const t = w.shiftTimes[dayIndex];
+  workerTimes.forEach(wt => {
     html += '<div style="display:flex; align-items:center; margin-bottom:10px; position:relative;">';
-    html += `<div style="width:100px; flex-shrink:0; font-size:13px; font-weight:700; color:var(--color-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${w.name}">${w.name}</div>`;
+    html += `<div style="width:100px; flex-shrink:0; font-size:13px; font-weight:700; color:var(--color-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${wt.name}">${wt.name}</div>`;
     
     html += '<div style="flex:1; position:relative; background:var(--color-bg); height:28px; border-radius:4px; overflow:hidden; display:flex;">';
     
@@ -3247,12 +3268,14 @@ function openDailyScheduleModal(dayIndex, pd) {
     }
     
     // バーの描画
-    const startRatio = (t.start - minStart) / totalHours * 100;
-    const widthRatio = (t.end - t.start) / totalHours * 100;
-    const barColor = w.category === 'employee' ? '#3B82F6' : '#10B981'; // 社員青、コミュニティ緑
+    const startRatio = (wt.start - minStart) / totalHours * 100;
+    let widthRatio = (wt.end - wt.start) / totalHours * 100;
+    if (widthRatio <= 0) widthRatio = 5; // 異常な時間設定でも最低限表示
+    
+    const barColor = wt.category === 'employee' ? '#3B82F6' : '#10B981'; // 社員青、コミュニティ緑
     
     html += `<div style="position:absolute; left:${startRatio}%; width:${widthRatio}%; top:2px; bottom:2px; background:${barColor}; border-radius:4px; box-shadow:0 1px 3px rgba(0,0,0,0.2); display:flex; align-items:center; justify-content:center; color:white; font-size:11px; font-weight:700; white-space:nowrap; overflow:hidden; text-shadow:0 1px 1px rgba(0,0,0,0.2);">`;
-    html += `${formatTimeShort(t.start)} - ${formatTimeShort(t.end)}`;
+    html += `${formatTimeShort(wt.start)} - ${formatTimeShort(wt.end)}`;
     html += `</div>`;
     
     html += '</div></div>';
