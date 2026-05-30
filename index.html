@@ -193,6 +193,16 @@
 
         <p class="settings-hint">※ スタッフ名と区分は必須です。未入力の項目はデフォルト値（月160h/週40h/日8h）が適用されます。</p>
 
+        <!-- バックアップ / 復元 -->
+        <div class="backup-restore-bar">
+          <span class="backup-restore-label">💾 スタッフデータ</span>
+          <button class="btn btn-secondary btn-sm" type="button" onclick="backupStaffData()">バックアップ（JSONダウンロード）</button>
+          <label class="btn btn-secondary btn-sm backup-restore-file-label" title="JSONファイルから復元">
+            復元（JSONアップロード）
+            <input type="file" id="restoreFileInput" accept=".json" style="display:none" onchange="restoreStaffData(this)">
+          </label>
+        </div>
+
         <!-- 登録済みスタッフ一覧 -->
         <div id="registeredStaffList"></div>
 
@@ -247,17 +257,20 @@
                 </tr>
                 <tr>
                   <td></td>
-                  <td class="cell-red">休（赤） ＝ 絶対休み</td>
+                  <td class="cell-red">希望休 ＝ 絶対休み</td>
                 </tr>
                 <tr>
                   <td></td>
-                  <td class="cell-blue">休（青） ＝ できれば休み</td>
+                  <td class="cell-blue">休日 ＝ できれば休み</td>
                 </tr>
               </tbody>
             </table>
             <p class="format-note">※ 登録済みスタッフ名がファイル名に含まれていれば自動で紐づけされます</p>
-            <p class="format-note">※ B列は「休（赤）」「休（青）」の文字を含むセルを自動判定します</p>
+            <p class="format-note">※ B列は「希望休」「休日」の文字を含むセルを自動判定します</p>
           </div>
+
+          <!-- Excel アップロード後の警告チェックボックスエリア -->
+          <div id="excelWarnings" class="warnings-container"></div>
         </div><!-- /#panel-excel -->
 
         <!-- ─ 手入力パネル ─ -->
@@ -286,8 +299,8 @@
             <div class="manual-legend">
               <span>セルをクリックして希望を入力：</span>
               <span><span class="mgrid-btn mgrid-avail mgrid-legend-samp">空</span> 出勤可</span>
-              <span><span class="mgrid-btn mgrid-red  mgrid-legend-samp">赤</span> 絶対休</span>
-              <span><span class="mgrid-btn mgrid-blue mgrid-legend-samp">青</span> 希望休</span>
+              <span><span class="mgrid-btn mgrid-red  mgrid-legend-samp">赤</span> 希望休</span>
+              <span><span class="mgrid-btn mgrid-blue mgrid-legend-samp">青</span> 休日</span>
               <span class="manual-legend-hint">（クリックするたびに 空→赤→青→空 と切り替わります）</span>
             </div>
 
@@ -303,6 +316,9 @@
                 🗑 クリア
               </button>
             </div>
+
+            <!-- 手入力警告チェックボックスエリア -->
+            <div id="manualWarnings" class="warnings-container"></div>
 
             <!-- 登録済み一覧 -->
             <div id="manualRegisteredList"></div>
@@ -383,10 +399,10 @@
             <span class="legend-dot shift-work"></span>出勤
           </span>
           <span class="legend-item">
-            <span class="legend-dot shift-off-red"></span>休（赤：絶対休）
+            <span class="legend-dot shift-off-red"></span>希望休（赤）
           </span>
           <span class="legend-item">
-            <span class="legend-dot shift-off-blue"></span>休（青：希望休）
+            <span class="legend-dot shift-off-blue"></span>休日（青）
           </span>
           <span class="legend-item">
             <span class="legend-dot shift-off"></span>休（調整）

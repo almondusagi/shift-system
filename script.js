@@ -582,6 +582,109 @@ function saveRegisteredStaff() {
   localStorage.setItem(LS_KEY_STAFF, JSON.stringify(AppState.registeredStaff));
 }
 
+/**
+ * 登録済みスタッフデータをJSONファイルとしてダウンロードする
+ */
+function backupStaffData() {
+  if (AppState.registeredStaff.length === 0) {
+    showToast('バックアップするスタッフデータがありません。', 'error');
+    return;
+  }
+
+  const payload = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    staff: AppState.registeredStaff
+  };
+
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+  const anchor    = document.createElement('a');
+  anchor.href     = url;
+  anchor.download = `スタッフデータ_${dateStr}.json`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+
+  showToast(`スタッフデータ（${AppState.registeredStaff.length}名）をバックアップしました。`, 'success');
+}
+
+/**
+ * JSONファイルから登録済みスタッフデータを復元する
+ * @param {HTMLInputElement} input
+ */
+function restoreStaffData(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  input.value = ''; // 同じファイルを再選択できるようリセット
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const parsed = JSON.parse(e.target.result);
+
+      // バージョン1形式 { version, staff: [...] } または旧形式の配列 [...] に対応
+      let staffArray;
+      if (Array.isArray(parsed)) {
+        staffArray = parsed;
+      } else if (parsed && Array.isArray(parsed.staff)) {
+        staffArray = parsed.staff;
+      } else {
+        throw new Error('スタッフ配列が見つかりません。');
+      }
+
+      // 最低限のバリデーション
+      for (const s of staffArray) {
+        if (typeof s.name !== 'string' || !s.name.trim()) {
+          throw new Error('スタッフ名が不正なデータが含まれています。');
+        }
+      }
+
+      const existingCount = AppState.registeredStaff.length;
+      if (existingCount > 0) {
+        const mode = confirm(
+          `現在${existingCount}名のスタッフが登録されています。\n\n` +
+          `【OK】既存データを上書きして復元\n` +
+          `【キャンセル】既存データに追記して復元`
+        );
+        if (mode) {
+          // 上書き
+          AppState.registeredStaff = staffArray;
+        } else {
+          // 追記（重複名はスキップ）
+          let added = 0;
+          for (const s of staffArray) {
+            if (!AppState.registeredStaff.some(r => r.name === s.name)) {
+              AppState.registeredStaff.push(s);
+              added++;
+            }
+          }
+          showToast(`${added}名を追記しました（重複スキップ: ${staffArray.length - added}名）。`, 'info');
+          saveRegisteredStaff();
+          renderRegisteredStaffList();
+          return;
+        }
+      } else {
+        AppState.registeredStaff = staffArray;
+      }
+
+      saveRegisteredStaff();
+      renderRegisteredStaffList();
+      showToast(`${staffArray.length}名のスタッフデータを復元しました。`, 'success');
+
+    } catch (err) {
+      showToast('復元に失敗しました：' + err.message, 'error');
+    }
+  };
+  reader.onerror = () => showToast('ファイルの読み込みに失敗しました。', 'error');
+  reader.readAsText(file, 'utf-8');
+}
+
 function setupStaffRegistration() {
   document.getElementById('registerStaffBtn').addEventListener('click', registerNewStaff);
 }
@@ -836,7 +939,10 @@ function setupDropzone() {
   const fileInput = document.getElementById('fileInput');
   const uploadBtn = document.getElementById('uploadBtn');
 
-  uploadBtn.addEventListener('click', () => fileInput.click());
+  uploadBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    fileInput.click();
+  });
 
   fileInput.addEventListener('change', (e) => {
     handleFiles(e.target.files);
@@ -943,9 +1049,52 @@ async function handleFiles(files) {
     document.getElementById('section-individual-settings').style.display = '';
     document.getElementById('section-actions').style.display = '';
     updateManualRegisteredList();
+    // Excelアップロード後の警告チェックボックスを描画
+    renderExcelUploadWarnings();
   }
 
   document.getElementById('fileInput').value = '';
+}
+
+/**
+ * Excelアップロード済みスタッフの希望休に対する警告を描画する
+ */
+function renderExcelUploadWarnings() {
+  const container = document.getElementById('excelWarnings');
+  if (!container) return;
+
+  let html = '';
+  for (const s of AppState.staffList) {
+    const redCount  = Object.values(s.requests).filter(v => v === 'red').length;
+    const blueCount = Object.values(s.requests).filter(v => v === 'blue').length;
+    const safeName  = s.name.replace(/\s/g, '_');
+
+    if (redCount >= 3) {
+      const key = `warn-toomanyred-excelWarnings-${safeName}`;
+      const checked = document.getElementById(key)?.checked ? 'checked' : '';
+      html += `
+        <div class="req-warning">
+          <label>
+            <input type="checkbox" id="${key}" ${checked}>
+            ⚠️ 「${escapeHtml(s.name)}」の希望休が${redCount}つ以上選択されていますがよろしいですか？
+          </label>
+        </div>
+      `;
+    }
+    if (redCount <= 1 && blueCount >= 1) {
+      const key = `warn-fewred-excelWarnings-${safeName}`;
+      const checked = document.getElementById(key)?.checked ? 'checked' : '';
+      html += `
+        <div class="req-warning">
+          <label>
+            <input type="checkbox" id="${key}" ${checked}>
+            ⚠️ 「${escapeHtml(s.name)}」の希望休が2つ未満で休日が入力されていますがよろしいですか？
+          </label>
+        </div>
+      `;
+    }
+  }
+  container.innerHTML = html;
 }
 
 /**
@@ -1174,7 +1323,9 @@ function detectRequestType(value) {
   const str = String(value).trim();
   if (!str) return '';
 
+  // 希望休 → red（絶対休み）
   if (
+    str.includes('希望休') ||
     str.includes('赤') ||
     str === '×' ||
     str.toUpperCase() === 'R' ||
@@ -1183,7 +1334,9 @@ function detectRequestType(value) {
     return 'red';
   }
 
+  // 休日 → blue（できれば休み）
   if (
+    str.includes('休日') ||
     str.includes('青') ||
     str.toUpperCase() === 'B' ||
     str === '△'
@@ -1191,7 +1344,8 @@ function detectRequestType(value) {
     return 'blue';
   }
 
-  if (str.includes('休') || str.includes('やすみ') || str.includes('ヤスミ')) {
+  // 単独「休」はblueとして扱う（後方互換）
+  if (str === '休' || str.includes('やすみ') || str.includes('ヤスミ')) {
     return 'blue';
   }
 
@@ -1301,8 +1455,8 @@ function renderStaffList() {
       <!-- 希望バッジ -->
       <div class="staff-badges-group">
         <div class="staff-badges">
-          ${redDays  > 0 ? `<span class="badge badge-red">赤:${redDays}日</span>` : ''}
-          ${blueDays > 0 ? `<span class="badge badge-blue">青:${blueDays}日</span>` : '<span class="badge-none">希望なし</span>'}
+          ${redDays  > 0 ? `<span class="badge badge-red">希望休:${redDays}日</span>` : ''}
+          ${blueDays > 0 ? `<span class="badge badge-blue">休日:${blueDays}日</span>` : '<span class="badge-none">希望なし</span>'}
         </div>
       </div>
 
@@ -1366,9 +1520,61 @@ function removeStaff(idx) {
  * シフト生成 - メイン
  * ============================================================ */
 
+/**
+ * 全スタッフの未チェック警告を収集する
+ * @returns {string[]} 未チェック警告メッセージの配列
+ */
+function collectUncheckedWarnings() {
+  const msgs = [];
+  for (const s of AppState.staffList) {
+    const redCount  = Object.values(s.requests).filter(v => v === 'red').length;
+    const blueCount = Object.values(s.requests).filter(v => v === 'blue').length;
+    const safeName  = s.name.replace(/\s/g, '_');
+
+    // Excel側とManual側の両方のキーを確認
+    const sources = ['excelWarnings', `manualWarnings`];
+
+    if (redCount >= 3) {
+      let checked = false;
+      for (const src of sources) {
+        const cb = document.getElementById(`warn-toomanyred-${src}-${safeName}`);
+        if (cb && cb.checked) { checked = true; break; }
+      }
+      if (!checked) {
+        msgs.push(`「${s.name}」: 希望休が${redCount}つ以上選択されています`);
+      }
+    }
+
+    if (redCount <= 1 && blueCount >= 1) {
+      let checked = false;
+      for (const src of sources) {
+        const cb = document.getElementById(`warn-fewred-${src}-${safeName}`);
+        if (cb && cb.checked) { checked = true; break; }
+      }
+      if (!checked) {
+        msgs.push(`「${s.name}」: 希望休が2つ未満で休日が入力されています`);
+      }
+    }
+  }
+  return msgs;
+}
+
+
 function generateAllShifts() {
   if (AppState.staffList.length === 0) {
     showToast('スタッフデータがありません。Excelファイルを読み込んでください。', 'error');
+    return;
+  }
+
+  // 未チェックの警告があればシフト生成を止める
+  const uncheckedWarnings = collectUncheckedWarnings();
+  if (uncheckedWarnings.length > 0) {
+    showToast(
+      '以下の項目を確認してチェックボックスにチェックを入れてください：\n' +
+      uncheckedWarnings.join('\n'),
+      'error',
+      6000
+    );
     return;
   }
 
@@ -1487,11 +1693,11 @@ function generateShiftForStaff(staff, totalDays) {
     }
   }
 
-  // Step 4: 6連勤を解消
-  fixConsecutiveRuns(shifts, requests, totalDays);
+  // Step 4: 6連勤を解消（override日は変更しない）
+  fixConsecutiveRuns(shifts, requests, totalDays, overrideDays);
 
-  // Step 5: 日数の微調整（連勤修正で数がズレた場合）
-  adjustToTargetCount(shifts, requests, totalDays, targetWorkDays);
+  // Step 5: 日数の微調整（連勤修正で数がズレた場合、override日は変更しない）
+  adjustToTargetCount(shifts, requests, totalDays, targetWorkDays, overrideDays);
 
   const finalWorkDays = countWorkDays(shifts, totalDays);
 
@@ -1529,7 +1735,7 @@ function selectEvenlySpaced(candidates, count) {
 /**
  * 6連勤以上の連続出勤を修正する
  */
-function fixConsecutiveRuns(shifts, requests, totalDays) {
+function fixConsecutiveRuns(shifts, requests, totalDays, overrideDays = new Set()) {
   let changed  = true;
   let safetyCounter = 0;
 
@@ -1546,18 +1752,24 @@ function fixConsecutiveRuns(shifts, requests, totalDays) {
         runLength++;
 
         if (runLength > MAX_CONSECUTIVE) {
-          const targetDay = selectBreakDay(shifts, requests, runStart, d);
+          const targetDay = selectBreakDay(shifts, requests, runStart, d, overrideDays);
 
-          if (requests[targetDay] === 'blue') {
-            shifts[targetDay] = 'off-blue';
+          if (targetDay < 0) {
+            // override日ばかりで休めない場合はそのまま
+            runStart  = -1;
+            runLength = 0;
           } else {
-            shifts[targetDay] = 'off';
-          }
+            if (requests[targetDay] === 'blue') {
+              shifts[targetDay] = 'off-blue';
+            } else {
+              shifts[targetDay] = 'off';
+            }
 
-          changed  = true;
-          runStart  = -1;
-          runLength = 0;
-          d         = -1;
+            changed  = true;
+            runStart  = -1;
+            runLength = 0;
+            d         = -1;
+          }
         }
       } else {
         runStart  = -1;
@@ -1567,28 +1779,32 @@ function fixConsecutiveRuns(shifts, requests, totalDays) {
   }
 }
 
-function selectBreakDay(shifts, requests, runStart, runEnd) {
-  // 青の日を優先
+function selectBreakDay(shifts, requests, runStart, runEnd, overrideDays = new Set()) {
+  // 青の日を優先（override日以外）
   for (let d = runStart; d <= runEnd; d++) {
-    if (requests[d] === 'blue' && shifts[d] === 'work') {
+    if (requests[d] === 'blue' && shifts[d] === 'work' && !overrideDays.has(d)) {
       return d;
     }
   }
-  // 中間を選ぶ
-  const mid = runStart + Math.floor((runEnd - runStart) / 2);
-  return mid;
+  // override でない work の中間を選ぶ
+  const candidates = [];
+  for (let d = runStart; d <= runEnd; d++) {
+    if (!overrideDays.has(d) && shifts[d] === 'work') candidates.push(d);
+  }
+  if (candidates.length === 0) return -1;
+  return candidates[Math.floor(candidates.length / 2)];
 }
 
 /**
  * 目標出勤日数に合わせて微調整
  */
-function adjustToTargetCount(shifts, requests, totalDays, target) {
+function adjustToTargetCount(shifts, requests, totalDays, target, overrideDays = new Set()) {
   for (let iter = 0; iter < 50; iter++) {
     const current = countWorkDays(shifts, totalDays);
     if (current === target) break;
 
     if (current > target) {
-      // 最も連勤が長い区間の中間にある無制約日を休みにする
+      // 最も連勤が長い区間の中間にある無制約日を休みにする（override日は除外）
       let bestDay = -1;
       let bestRun = 0;
       let runLen = 0;
@@ -1601,21 +1817,21 @@ function adjustToTargetCount(shifts, requests, totalDays, target) {
           if (runLen > bestRun) {
             bestRun = runLen;
             const mid = rStart + Math.floor(runLen / 2);
-            if (requests[mid] !== 'red') bestDay = mid;
+            if (requests[mid] !== 'red' && !overrideDays.has(mid)) bestDay = mid;
           }
           runLen = 0;
         }
       }
       if (runLen > bestRun) {
         const mid = rStart + Math.floor(runLen / 2);
-        if (requests[mid] !== 'red') bestDay = mid;
+        if (requests[mid] !== 'red' && !overrideDays.has(mid)) bestDay = mid;
       }
       if (bestDay >= 0 && shifts[bestDay] === 'work') {
         shifts[bestDay] = requests[bestDay] === 'blue' ? 'off-blue' : 'off';
       } else {
-        // フォールバック: 末尾から探す
+        // フォールバック: 末尾から探す（override日は除外）
         for (let d = totalDays - 1; d >= 0; d--) {
-          if (shifts[d] === 'work' && requests[d] !== 'red') {
+          if (shifts[d] === 'work' && requests[d] !== 'red' && !overrideDays.has(d)) {
             shifts[d] = 'off';
             break;
           }
@@ -1633,7 +1849,6 @@ function adjustToTargetCount(shifts, requests, totalDays, target) {
           runLen++;
         } else {
           if (runLen > bestRun) {
-            // 赤を避けて候補を探す
             for (let r = rStart; r < rStart + runLen; r++) {
               if (requests[r] !== 'red') {
                 bestDay = r;
@@ -1656,7 +1871,6 @@ function adjustToTargetCount(shifts, requests, totalDays, target) {
       if (bestDay >= 0) {
         shifts[bestDay] = 'work';
       } else {
-        // フォールバック
         for (let d = 0; d < totalDays; d++) {
           if (shifts[d] !== 'work' && requests[d] !== 'red') {
             shifts[d] = 'work';
@@ -2039,9 +2253,9 @@ function renderResults() {
           cellText = '出';
         }
       } else if (shift === 'off-red') {
-        cellText = '休(赤)';
+        cellText = '希望休';
       } else if (shift === 'off-blue') {
-        cellText = '休(青)';
+        cellText = '休日';
       }
       
       td.innerHTML = cellText;
@@ -2111,8 +2325,8 @@ function getShiftTooltip(shift, name, periodDay) {
   const dateStr = `${periodDay.month}/${periodDay.day}(${DAY_NAMES[periodDay.dow]})`;
   switch (shift) {
     case 'work':     return `${name} - ${dateStr}：出勤`;
-    case 'off-red':  return `${name} - ${dateStr}：休み（絶対休み）`;
-    case 'off-blue': return `${name} - ${dateStr}：休み（希望休）`;
+    case 'off-red':  return `${name} - ${dateStr}：希望休`;
+    case 'off-blue': return `${name} - ${dateStr}：休日`;
     case 'off':      return `${name} - ${dateStr}：休み（調整）`;
     default:         return '';
   }
@@ -2214,13 +2428,17 @@ function calculateAllShiftTimes(period) {
       };
     });
 
-    // ── 早番割り当て：累計が少ない人から優先 ──
-    // canEarly な未割り当て pool を earlyShiftCounts 昇順にソートして先頭から割り当て
+    // ── 早番割り当て：累計が少ない人から優先、前日も早番だった人は後回し ──
+    // 前日も早番だった人にはペナルティを加算して連続を抑制
     const earlyPool = pools
       .filter(p => p.canEarly && p.role === '')
-      .sort((a, b) =>
-        (earlyShiftCounts[a.result.name] || 0) - (earlyShiftCounts[b.result.name] || 0)
-      );
+      .sort((a, b) => {
+        const aPrevEarly = d > 0 && a.result.shiftTimes && a.result.shiftTimes[d-1] && a.result.shiftTimes[d-1].role === 'early' ? 1 : 0;
+        const bPrevEarly = d > 0 && b.result.shiftTimes && b.result.shiftTimes[d-1] && b.result.shiftTimes[d-1].role === 'early' ? 1 : 0;
+        const aScore = (earlyShiftCounts[a.result.name] || 0) + aPrevEarly * 1000;
+        const bScore = (earlyShiftCounts[b.result.name] || 0) + bPrevEarly * 1000;
+        return aScore - bScore;
+      });
 
     let assignedEarly = 0;
     for (const p of earlyPool) {
@@ -2232,13 +2450,16 @@ function calculateAllShiftTimes(period) {
       assignedEarly++;
     }
 
-    // ── 遅番割り当て：累計が少ない人から優先 ──
-    // canLate な未割り当て pool を lateShiftCounts 昇順にソートして先頭から割り当て
+    // ── 遅番割り当て：累計が少ない人から優先、前日も遅番だった人は後回し ──
     const latePool = pools
       .filter(p => p.canLate && p.role === '')
-      .sort((a, b) =>
-        (lateShiftCounts[a.result.name] || 0) - (lateShiftCounts[b.result.name] || 0)
-      );
+      .sort((a, b) => {
+        const aPrevLate = d > 0 && a.result.shiftTimes && a.result.shiftTimes[d-1] && a.result.shiftTimes[d-1].role === 'late' ? 1 : 0;
+        const bPrevLate = d > 0 && b.result.shiftTimes && b.result.shiftTimes[d-1] && b.result.shiftTimes[d-1].role === 'late' ? 1 : 0;
+        const aScore = (lateShiftCounts[a.result.name] || 0) + aPrevLate * 1000;
+        const bScore = (lateShiftCounts[b.result.name] || 0) + bPrevLate * 1000;
+        return aScore - bScore;
+      });
 
     let assignedLate = 0;
     for (const p of latePool) {
@@ -2330,9 +2551,9 @@ function exportCSV() {
           label = '出勤';
         }
       } else if (shift === 'off-red') {
-        label = '休み(赤)';
+        label = '希望休';
       } else if (shift === 'off-blue') {
-        label = '休み(青)';
+        label = '休日';
       }
       row.push(label);
     });
@@ -2422,6 +2643,12 @@ function resetAll() {
   AppState.manualInput.requests = {};
   renderManualDayGrid();
   updateManualRegisteredList();
+
+  // 警告エリアもクリア
+  const ew = document.getElementById('excelWarnings');
+  if (ew) ew.innerHTML = '';
+  const mw = document.getElementById('manualWarnings');
+  if (mw) mw.innerHTML = '';
 
   showToast('リセットしました', 'info');
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2580,15 +2807,15 @@ function initManualInputSection() {
  */
 function onManualStaffChange(value) {
   AppState.manualInput.staffName = value;
-  // テキスト入力欄をクリア（セレクト優先）
   const nameInput = document.getElementById('manualStaffNameInput');
   if (nameInput && value) nameInput.value = '';
 
-  // 既にそのスタッフのデータが staffList にあれば requests を復元
   const existing = AppState.staffList.find(s => s.name === value);
   AppState.manualInput.requests = existing ? { ...existing.requests } : {};
 
   renderManualDayGrid();
+  if (value) renderRequestWarnings(value, AppState.manualInput.requests, 'manualWarnings');
+  else { const w = document.getElementById('manualWarnings'); if (w) w.innerHTML = ''; }
 }
 
 /**
@@ -2596,7 +2823,6 @@ function onManualStaffChange(value) {
  */
 function onManualNameInputChange(value) {
   AppState.manualInput.staffName = value.trim();
-  // セレクトをリセット
   const sel = document.getElementById('manualStaffSelect');
   if (sel) sel.value = '';
 
@@ -2604,6 +2830,8 @@ function onManualNameInputChange(value) {
   AppState.manualInput.requests = existing ? { ...existing.requests } : {};
 
   renderManualDayGrid();
+  if (value.trim()) renderRequestWarnings(value.trim(), AppState.manualInput.requests, 'manualWarnings');
+  else { const w = document.getElementById('manualWarnings'); if (w) w.innerHTML = ''; }
 }
 
 /**
@@ -2647,15 +2875,15 @@ function renderManualDayGrid() {
     if (reqType === 'red') {
       btn.className   = 'mgrid-btn mgrid-red';
       btn.textContent = '赤';
-      btn.title       = '絶対休み（クリックで「青」に変更）';
+      btn.title       = '希望休（クリックで「青」に変更）';
     } else if (reqType === 'blue') {
       btn.className   = 'mgrid-btn mgrid-blue';
       btn.textContent = '青';
-      btn.title       = '希望休（クリックで「空欄」に変更）';
+      btn.title       = '休日（クリックで「空欄」に変更）';
     } else {
       btn.className   = 'mgrid-btn mgrid-avail';
       btn.textContent = '空';
-      btn.title       = '出勤可能（クリックで「赤」に変更）';
+      btn.title       = '出勤可能（クリックで「赤（希望休）」に変更）';
     }
 
     cell.appendChild(btn);
@@ -2678,11 +2906,107 @@ function toggleManualDayRequest(dayIdx) {
     delete AppState.manualInput.requests[dayIdx];
   }
   renderManualDayGrid();
+  // 名前が確定しているなら警告を即時更新
+  const selVal   = (document.getElementById('manualStaffSelect')?.value   || '').trim();
+  const inputVal = (document.getElementById('manualStaffNameInput')?.value || '').trim();
+  const name     = selVal || inputVal;
+  if (name) {
+    renderRequestWarnings(name, AppState.manualInput.requests, 'manualWarnings');
+  }
 }
 
 /**
  * 手入力データをスタッフリストに登録・更新する
  */
+/**
+ * 希望休バリデーションチェック
+ * @param {string} name - スタッフ名
+ * @param {Object} requests - {dayIdx: 'red'|'blue'}
+ * @param {string} sourceId - チェックボックスを管理するコンテナID（手入力 or Excel用）
+ * @returns {boolean} 問題があればfalse（ただしチェックボックスにチェック済みならtrue）
+ */
+function checkRequestWarnings(name, requests, sourceId) {
+  const redCount  = Object.values(requests).filter(v => v === 'red').length;
+  const blueCount = Object.values(requests).filter(v => v === 'blue').length;
+
+  let warnings = [];
+
+  if (redCount >= 3) {
+    warnings.push({
+      key: `warn-toomanyred-${sourceId}-${name.replace(/\s/g,'_')}`,
+      msg: `「${name}」の希望休が${redCount}つ以上選択されていますがよろしいですか？`
+    });
+  }
+
+  if (redCount <= 1 && blueCount >= 1) {
+    warnings.push({
+      key: `warn-fewred-${sourceId}-${name.replace(/\s/g,'_')}`,
+      msg: `「${name}」の希望休が2つ未満で休日が入力されていますがよろしいですか？`
+    });
+  }
+
+  if (warnings.length === 0) return true;
+
+  // ウォーニングコンテナを取得
+  const container = document.getElementById(sourceId);
+  if (!container) return true;
+
+  // 未チェックの警告があるか確認
+  let allChecked = true;
+  for (const w of warnings) {
+    const cb = document.getElementById(w.key);
+    if (!cb || !cb.checked) {
+      allChecked = false;
+      break;
+    }
+  }
+  return allChecked;
+}
+
+/**
+ * 手入力エリアに警告チェックボックスを描画する
+ * @param {string} name - スタッフ名
+ * @param {Object} requests - {dayIdx: 'red'|'blue'}
+ * @param {string} containerId - 描画先コンテナID
+ */
+function renderRequestWarnings(name, requests, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const redCount  = Object.values(requests).filter(v => v === 'red').length;
+  const blueCount = Object.values(requests).filter(v => v === 'blue').length;
+
+  let html = '';
+
+  if (redCount >= 3) {
+    const key = `warn-toomanyred-${containerId}-${name.replace(/\s/g,'_')}`;
+    const checked = document.getElementById(key)?.checked ? 'checked' : '';
+    html += `
+      <div class="req-warning">
+        <label>
+          <input type="checkbox" id="${key}" ${checked}>
+          ⚠️ 希望休が${redCount}つ以上選択されていますがよろしいですか？
+        </label>
+      </div>
+    `;
+  }
+
+  if (redCount <= 1 && blueCount >= 1) {
+    const key = `warn-fewred-${containerId}-${name.replace(/\s/g,'_')}`;
+    const checked = document.getElementById(key)?.checked ? 'checked' : '';
+    html += `
+      <div class="req-warning">
+        <label>
+          <input type="checkbox" id="${key}" ${checked}>
+          ⚠️ 希望休が2つ未満で休日が入力されていますがよろしいですか？
+        </label>
+      </div>
+    `;
+  }
+
+  container.innerHTML = html;
+}
+
 function registerManualStaff() {
   // スタッフ名を確定（セレクト優先、なければテキスト入力）
   const selVal   = (document.getElementById('manualStaffSelect')?.value   || '').trim();
@@ -2695,6 +3019,15 @@ function registerManualStaff() {
   }
 
   AppState.manualInput.staffName = name;
+
+  // 警告チェックボックスを更新描画
+  renderRequestWarnings(name, AppState.manualInput.requests, 'manualWarnings');
+
+  // バリデーション：未チェックの警告があれば登録不可
+  if (!checkRequestWarnings(name, AppState.manualInput.requests, 'manualWarnings')) {
+    showToast('⚠️ 警告の内容を確認してチェックボックスにチェックを入れてください。', 'error');
+    return;
+  }
 
   // 登録済みスタッフからマスタ情報を取得
   const regStaff = AppState.registeredStaff.find(s => s.name === name);
@@ -2738,13 +3071,15 @@ function registerManualStaff() {
   document.getElementById('section-individual-settings').style.display = '';
   document.getElementById('section-actions').style.display            = '';
 
-  // 入力エリアをリセット
+  // 入力エリアをリセット（警告エリアもクリア）
   AppState.manualInput.staffName = '';
   AppState.manualInput.requests  = {};
   const sel = document.getElementById('manualStaffSelect');
   if (sel) sel.value = '';
   const ni = document.getElementById('manualStaffNameInput');
   if (ni) ni.value = '';
+  const warnEl = document.getElementById('manualWarnings');
+  if (warnEl) warnEl.innerHTML = '';
   renderManualDayGrid();
   updateManualRegisteredList();
 }
@@ -2782,8 +3117,8 @@ function updateManualRegisteredList() {
         <div class="manual-reg-item">
           <span class="manual-reg-name">${escapeHtml(s.name)}</span>
           <span class="manual-reg-badges">
-            ${redCount(s.requests)  > 0 ? `<span class="badge badge-red">赤:${redCount(s.requests)}日</span>` : ''}
-            ${blueCount(s.requests) > 0 ? `<span class="badge badge-blue">青:${blueCount(s.requests)}日</span>` : ''}
+            ${redCount(s.requests)  > 0 ? `<span class="badge badge-red">希望休:${redCount(s.requests)}日</span>` : ''}
+            ${blueCount(s.requests) > 0 ? `<span class="badge badge-blue">休日:${blueCount(s.requests)}日</span>` : ''}
             ${redCount(s.requests) === 0 && blueCount(s.requests) === 0 ? '<span class="badge-none">希望なし</span>' : ''}
           </span>
           <button class="btn-remove" type="button" onclick="removeStaffFromManualList(${idx})">削除</button>
