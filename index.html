@@ -425,6 +425,19 @@
   </main>
 </div>
 
+<!-- 日別スケジュールモーダル -->
+<div id="dailyScheduleModal" class="overlay-warning" style="display:none">
+  <div class="overlay-box" style="max-width:800px; width:90%; padding:20px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+      <h3 id="dailyScheduleTitle" style="margin:0; color:var(--color-primary); font-size:16px;"></h3>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="closeDailyScheduleModal()">閉じる</button>
+    </div>
+    <div id="dailyScheduleContent" style="overflow-x:auto;">
+      <!-- ここにタイムラインを描画 -->
+    </div>
+  </div>
+</div>
+
 <!-- トースト通知コンテナ -->
 <div id="toast-container"></div>
 

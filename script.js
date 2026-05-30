@@ -2213,8 +2213,9 @@ function renderResults() {
 
     // 日付セル
     const tdDate = document.createElement('td');
-    tdDate.className = `tf-label${dow === 0 ? ' sun' : dow === 6 ? ' sat' : ''}`;
+    tdDate.className = `td-date-clickable${dow === 0 ? ' sun' : dow === 6 ? ' sat' : ''}`;
     tdDate.innerHTML = `<span class="th-month-num">${pd.month}/</span><span class="th-day-num">${pd.day}</span><span class="th-dow">(${DAY_NAMES[dow]})</span>`;
+    tdDate.onclick = () => openDailyScheduleModal(i, pd);
     tr.appendChild(tdDate);
 
     // 出勤人数セル
@@ -3182,4 +3183,94 @@ function showToast(message, type = 'info', duration = 4000) {
       if (toast.parentNode) toast.parentNode.removeChild(toast);
     }, 350);
   }, duration);
+}
+
+/* ============================================================
+ * 日別スケジュール モーダル (Outlook風タイムライン)
+ * ============================================================ */
+function openDailyScheduleModal(dayIndex, pd) {
+  const modal = document.getElementById('dailyScheduleModal');
+  const title = document.getElementById('dailyScheduleTitle');
+  const content = document.getElementById('dailyScheduleContent');
+  
+  if (!modal || !title || !content) return;
+  
+  title.textContent = `${pd.month}月${pd.day}日(${DAY_NAMES[pd.dow]}) のスケジュール`;
+  
+  // その日の出勤スタッフを取得
+  const workers = AppState.results.filter(r => r.shifts[dayIndex] === 'work' && r.shiftTimes && r.shiftTimes[dayIndex]);
+  
+  if (workers.length === 0) {
+    content.innerHTML = '<p style="color:var(--color-text-muted);">出勤スタッフはいません。</p>';
+    modal.style.display = 'flex';
+    return;
+  }
+  
+  // 最小時間と最大時間を求める
+  let minStart = 24;
+  let maxEnd = 0;
+  workers.forEach(w => {
+    const t = w.shiftTimes[dayIndex];
+    if (t.start < minStart) minStart = Math.floor(t.start);
+    if (t.end > maxEnd) maxEnd = Math.ceil(t.end);
+  });
+  
+  if (minStart > maxEnd) { minStart = 8; maxEnd = 22; }
+  minStart = Math.max(0, minStart - 1);
+  maxEnd = Math.min(30, maxEnd + 1); // 翌日6時まで
+  
+  let html = '<div style="min-width: 600px; padding-bottom:10px;">';
+  
+  // ヘッダー（時間）
+  html += '<div style="display:flex; border-bottom:1px solid var(--color-border); padding-bottom:5px; margin-bottom:10px;">';
+  html += '<div style="width:100px; flex-shrink:0;"></div>';
+  const totalHours = maxEnd - minStart;
+  for(let h = minStart; h < maxEnd; h++) {
+    const dispH = h >= 24 ? h - 24 : h;
+    html += `<div style="flex:1; text-align:left; font-size:11px; color:var(--color-text-muted); position:relative;">`;
+    html += `<span style="position:absolute; left:-10px; width:40px; text-align:center;">${dispH}:00</span>`;
+    html += `</div>`;
+  }
+  html += '</div>';
+  
+  // スタッフごとのバー
+  workers.forEach(w => {
+    const t = w.shiftTimes[dayIndex];
+    html += '<div style="display:flex; align-items:center; margin-bottom:10px; position:relative;">';
+    html += `<div style="width:100px; flex-shrink:0; font-size:13px; font-weight:700; color:var(--color-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${w.name}">${w.name}</div>`;
+    
+    html += '<div style="flex:1; position:relative; background:var(--color-bg); height:28px; border-radius:4px; overflow:hidden; display:flex;">';
+    
+    // 背景のグリッド線
+    for(let h = minStart; h < maxEnd; h++) {
+      html += '<div style="flex:1; border-left:1px dashed var(--color-border); box-sizing:border-box;"></div>';
+    }
+    
+    // バーの描画
+    const startRatio = (t.start - minStart) / totalHours * 100;
+    const widthRatio = (t.end - t.start) / totalHours * 100;
+    const barColor = w.category === 'employee' ? '#3B82F6' : '#10B981'; // 社員青、コミュニティ緑
+    
+    html += `<div style="position:absolute; left:${startRatio}%; width:${widthRatio}%; top:2px; bottom:2px; background:${barColor}; border-radius:4px; box-shadow:0 1px 3px rgba(0,0,0,0.2); display:flex; align-items:center; justify-content:center; color:white; font-size:11px; font-weight:700; white-space:nowrap; overflow:hidden; text-shadow:0 1px 1px rgba(0,0,0,0.2);">`;
+    html += `${formatTimeShort(t.start)} - ${formatTimeShort(t.end)}`;
+    html += `</div>`;
+    
+    html += '</div></div>';
+  });
+  
+  html += '</div>';
+  
+  // 凡例
+  html += '<div style="margin-top:20px; font-size:12px; font-weight:700; color:var(--color-text-muted); display:flex; gap:16px;">';
+  html += '<span style="display:flex; align-items:center; gap:6px;"><span style="width:14px; height:14px; background:#3B82F6; border-radius:3px;"></span>社員</span>';
+  html += '<span style="display:flex; align-items:center; gap:6px;"><span style="width:14px; height:14px; background:#10B981; border-radius:3px;"></span>コミュニティ</span>';
+  html += '</div>';
+  
+  content.innerHTML = html;
+  modal.style.display = 'flex';
+}
+
+function closeDailyScheduleModal() {
+  const modal = document.getElementById('dailyScheduleModal');
+  if (modal) modal.style.display = 'none';
 }

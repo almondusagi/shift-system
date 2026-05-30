@@ -1290,6 +1290,35 @@ body {
   color:      #FCA5A5;
 }
 
+.td-date-clickable {
+  padding: 6px 2px;
+  text-align: center;
+  font-weight: 700;
+  cursor: pointer;
+  border-right: 1px solid rgba(0,0,0,0.05);
+  background: inherit;
+  color: var(--color-primary);
+  transition: filter 0.1s;
+}
+.td-date-clickable.sun { background: #FFF5F5; color: #DC2626; }
+.td-date-clickable.sat { background: #EFF6FF; color: #2563EB; }
+.td-date-clickable:hover {
+  filter: brightness(0.92);
+}
+.td-date-clickable .th-month-num {
+  font-size: 9px;
+  opacity: 0.8;
+}
+.td-date-clickable .th-day-num {
+  display: block;
+  font-size: 12px;
+}
+.td-date-clickable .th-dow {
+  display: block;
+  font-size: 10px;
+  opacity: 0.8;
+}
+
 /* ─── 注意書き ─── */
 .result-notes {
   margin-top: 12px;
