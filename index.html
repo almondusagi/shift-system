@@ -286,13 +286,6 @@
                   <option value="">-- 選択 --</option>
                 </select>
               </div>
-              <div class="manual-or-sep">または</div>
-              <div class="form-field" style="flex:1; min-width:120px;">
-                <label class="manual-label">直接入力（未登録の場合）</label>
-                <input type="text" id="manualStaffNameInput" class="form-input"
-                       placeholder="名前を入力"
-                       oninput="onManualNameInputChange(this.value)">
-              </div>
             </div>
 
             <!-- 凡例 -->
@@ -374,10 +367,7 @@
     <!-- ─── アクションボタン ─── -->
     <div class="action-row" id="section-actions" style="display:none">
       <button id="generateBtn" class="btn btn-primary btn-large" type="button">
-        ⚡ シフト表を自動生成する
-      </button>
-      <button id="resetBtn" class="btn btn-danger" type="button">
-        🔄 全リセット
+        ⚡ シフト表を生成
       </button>
     </div>
 
@@ -422,19 +412,29 @@
       </div>
     </section>
 
+    <!-- ─── 危険なアクションボタン ─── -->
+    <div class="action-row danger-action-row" id="section-danger-actions" style="display:none; margin-top:20px;">
+      <button id="resetBtn" class="btn btn-danger" type="button">
+        🔄 全リセット
+      </button>
+    </div>
+
   </main>
 </div>
 
 <!-- 日別スケジュールモーダル -->
 <div id="dailyScheduleModal" class="overlay-warning" style="display:none">
-  <div class="overlay-box" style="max-width:800px; width:90%; padding:20px;">
+  <div class="overlay-box" style="position:relative; max-width:800px; width:90%; padding:20px 50px;">
+    
+    <button id="prevDayBtn" class="btn btn-secondary btn-sm" type="button" 
+            style="position:absolute; left:10px; top:50%; transform:translateY(-50%); padding:15px 10px; font-size:18px; z-index:10;">◀</button>
+            
+    <button id="nextDayBtn" class="btn btn-secondary btn-sm" type="button" 
+            style="position:absolute; right:10px; top:50%; transform:translateY(-50%); padding:15px 10px; font-size:18px; z-index:10;">▶</button>
+
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-      <div style="display:flex; align-items:center; gap:12px;">
-        <button id="prevDayBtn" class="btn btn-secondary btn-sm" type="button" style="padding:4px 10px; min-width:auto;">◀</button>
-        <h3 id="dailyScheduleTitle" style="margin:0; color:var(--color-primary); font-size:16px; min-width:140px; text-align:center;"></h3>
-        <button id="nextDayBtn" class="btn btn-secondary btn-sm" type="button" style="padding:4px 10px; min-width:auto;">▶</button>
-      </div>
-      <button class="btn btn-secondary btn-sm" type="button" onclick="closeDailyScheduleModal()">閉じる</button>
+      <h3 id="dailyScheduleTitle" style="margin:0; color:var(--color-primary); font-size:16px; text-align:center; flex:1;"></h3>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="closeDailyScheduleModal()" style="z-index:10;">閉じる</button>
     </div>
     <div id="dailyScheduleContent" style="overflow-x:auto;">
       <!-- ここにタイムラインを描画 -->

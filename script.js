@@ -125,8 +125,48 @@ document.addEventListener('DOMContentLoaded', () => {
   checkXLSXLibrary();
   setupCollapsibleCards();
   setupMobileBottomNav();
+  
+  syncRegisteredToStaffList();
   initManualInputSection();
 });
+
+/**
+ * 登録済みスタッフを自動的にシフト対象(staffList)に同期追加する
+ */
+function syncRegisteredToStaffList() {
+  let changed = false;
+  AppState.registeredStaff.forEach(regStaff => {
+    const exists = AppState.staffList.some(s => s.name === regStaff.name);
+    if (!exists) {
+      AppState.staffList.push({
+        name: regStaff.name,
+        matchedRegistered: regStaff,
+        requests: {},
+        settings: {
+          category:       regStaff.category,
+          monthlyHours:   regStaff.monthlyHours   ?? 160,
+          weeklyHours:    regStaff.weeklyHours     ?? 40,
+          dailyHours:     regStaff.dailyHours      ?? 8,
+          availableStart: regStaff.availableStart  ?? null,
+          availableEnd:   regStaff.availableEnd    ?? null
+        }
+      });
+      changed = true;
+    }
+  });
+  
+  if (changed) {
+    renderStaffList();
+    const manualList = document.getElementById('manualRegisteredList');
+    if (manualList) updateManualRegisteredList();
+    if (AppState.staffList.length > 0) {
+      document.getElementById('section-staff').style.display   = '';
+      document.getElementById('section-individual-settings').style.display = '';
+      document.getElementById('section-actions').style.display = '';
+      document.getElementById('section-danger-actions').style.display = '';
+    }
+  }
+}
 
 /* ============================================================
  * シフト期間計算
@@ -675,6 +715,7 @@ function restoreStaffData(input) {
 
       saveRegisteredStaff();
       renderRegisteredStaffList();
+      syncRegisteredToStaffList();
       showToast(`${staffArray.length}名のスタッフデータを復元しました。`, 'success');
 
     } catch (err) {
@@ -727,6 +768,7 @@ function registerNewStaff() {
   AppState.registeredStaff.push(staff);
   saveRegisteredStaff();
   renderRegisteredStaffList();
+  syncRegisteredToStaffList();
 
   // フォームリセット
   document.getElementById('regStaffName').value     = '';
@@ -1048,6 +1090,7 @@ async function handleFiles(files) {
     document.getElementById('section-staff').style.display   = '';
     document.getElementById('section-individual-settings').style.display = '';
     document.getElementById('section-actions').style.display = '';
+    document.getElementById('section-danger-actions').style.display = '';
     updateManualRegisteredList();
     // Excelアップロード後の警告チェックボックスを描画
     renderExcelUploadWarnings();
@@ -1455,8 +1498,19 @@ function renderStaffList() {
       <!-- 希望バッジ -->
       <div class="staff-badges-group">
         <div class="staff-badges">
-          ${redDays  > 0 ? `<span class="badge badge-red">希望休:${redDays}日</span>` : ''}
-          ${blueDays > 0 ? `<span class="badge badge-blue">休日:${blueDays}日</span>` : '<span class="badge-none">希望なし</span>'}
+          ${(() => {
+            const getDates = (type) => Object.entries(staff.requests)
+              .filter(([_, v]) => v === type)
+              .map(([idx]) => `${period.days[idx].month}/${period.days[idx].day}`)
+              .join(', ');
+            const redDates = getDates('red');
+            const blueDates = getDates('blue');
+            let html = '';
+            if (redDates) html += `<span class="badge badge-red">希望休: ${redDates}</span>`;
+            if (blueDates) html += `<span class="badge badge-blue">休日: ${blueDates}</span>`;
+            if (!redDates && !blueDates) html += `<span class="badge-none">希望なし</span>`;
+            return html;
+          })()}
         </div>
       </div>
 
@@ -1509,6 +1563,7 @@ function removeStaff(idx) {
   if (AppState.staffList.length === 0) {
     document.getElementById('section-staff').style.display   = 'none';
     document.getElementById('section-actions').style.display = 'none';
+    document.getElementById('section-danger-actions').style.display = 'none';
     document.getElementById('section-result').style.display  = 'none';
   } else {
     renderStaffList();
@@ -1644,16 +1699,18 @@ function generateShiftForStaff(staff, totalDays) {
     }
   }
 
-  const availableDays = freeDays.length + blueDays.length;
-  const targetWorkDays = Math.min(requiredWorkDays, availableDays);
+  // ─ コミュニティスタッフの±0厳守チェック ─
+  const isCommunity = settings.category === 'community';
+  const availableDays = totalDays - redDays.length;
+  
+  // コミュニティスタッフは±0を最優先するため、availableDaysによる上限を無視する
+  let targetWorkDays = isCommunity ? requiredWorkDays : Math.min(requiredWorkDays, availableDays);
+  if (targetWorkDays > totalDays) targetWorkDays = totalDays; // さすがに月の日数を超えることはできない
   const neededOffDays  = availableDays - targetWorkDays;
 
-  // ─ コミュニティスタッフの±0厳守チェック ─
-  // 赤休が多すぎてどうしても達成不可能な場合のみ警告をコンソールへ出す
-  if (settings.category === 'community' && requiredWorkDays > availableDays) {
+  if (isCommunity && requiredWorkDays > availableDays) {
     console.warn(
-      `[±0厳守] "${name}": 赤休が多く目標${requiredWorkDays}日に対し` +
-      `出勤可能日${availableDays}日しかないため上限で確定します`
+      `[±0厳守] "${name}": 赤休が多いですが、勤務時間差分0を最優先するため一部の赤休を取り消して出勤させます`
     );
   }
 
@@ -1697,7 +1754,7 @@ function generateShiftForStaff(staff, totalDays) {
   fixConsecutiveRuns(shifts, requests, totalDays, overrideDays);
 
   // Step 5: 日数の微調整（連勤修正で数がズレた場合、override日は変更しない）
-  adjustToTargetCount(shifts, requests, totalDays, targetWorkDays, overrideDays);
+  adjustToTargetCount(shifts, requests, totalDays, targetWorkDays, overrideDays, isCommunity);
 
   const finalWorkDays = countWorkDays(shifts, totalDays);
 
@@ -1798,7 +1855,7 @@ function selectBreakDay(shifts, requests, runStart, runEnd, overrideDays = new S
 /**
  * 目標出勤日数に合わせて微調整
  */
-function adjustToTargetCount(shifts, requests, totalDays, target, overrideDays = new Set()) {
+function adjustToTargetCount(shifts, requests, totalDays, target, overrideDays = new Set(), isCommunity = false) {
   for (let iter = 0; iter < 50; iter++) {
     const current = countWorkDays(shifts, totalDays);
     if (current === target) break;
@@ -1830,10 +1887,20 @@ function adjustToTargetCount(shifts, requests, totalDays, target, overrideDays =
         shifts[bestDay] = requests[bestDay] === 'blue' ? 'off-blue' : 'off';
       } else {
         // フォールバック: 末尾から探す（override日は除外）
+        let found = false;
         for (let d = totalDays - 1; d >= 0; d--) {
           if (shifts[d] === 'work' && requests[d] !== 'red' && !overrideDays.has(d)) {
             shifts[d] = 'off';
+            found = true;
             break;
+          }
+        }
+        if (!found && isCommunity) {
+          for (let d = totalDays - 1; d >= 0; d--) {
+            if (shifts[d] === 'work' && !overrideDays.has(d)) {
+              shifts[d] = 'off';
+              break;
+            }
           }
         }
       }
@@ -1871,10 +1938,20 @@ function adjustToTargetCount(shifts, requests, totalDays, target, overrideDays =
       if (bestDay >= 0) {
         shifts[bestDay] = 'work';
       } else {
+        let found = false;
         for (let d = 0; d < totalDays; d++) {
           if (shifts[d] !== 'work' && requests[d] !== 'red') {
             shifts[d] = 'work';
+            found = true;
             break;
+          }
+        }
+        if (!found && isCommunity) {
+          for (let d = 0; d < totalDays; d++) {
+            if (shifts[d] !== 'work' && !overrideDays.has(d)) {
+              shifts[d] = 'work';
+              break;
+            }
           }
         }
       }
@@ -2625,6 +2702,7 @@ function resetAll() {
 
   document.getElementById('section-staff').style.display   = 'none';
   document.getElementById('section-actions').style.display = 'none';
+  document.getElementById('section-danger-actions').style.display = 'none';
   document.getElementById('section-result').style.display  = 'none';
 
   document.getElementById('staffList').innerHTML   = '';
@@ -2808,8 +2886,6 @@ function initManualInputSection() {
  */
 function onManualStaffChange(value) {
   AppState.manualInput.staffName = value;
-  const nameInput = document.getElementById('manualStaffNameInput');
-  if (nameInput && value) nameInput.value = '';
 
   const existing = AppState.staffList.find(s => s.name === value);
   AppState.manualInput.requests = existing ? { ...existing.requests } : {};
@@ -2908,9 +2984,8 @@ function toggleManualDayRequest(dayIdx) {
   }
   renderManualDayGrid();
   // 名前が確定しているなら警告を即時更新
-  const selVal   = (document.getElementById('manualStaffSelect')?.value   || '').trim();
-  const inputVal = (document.getElementById('manualStaffNameInput')?.value || '').trim();
-  const name     = selVal || inputVal;
+  const selVal = (document.getElementById('manualStaffSelect')?.value || '').trim();
+  const name   = selVal;
   if (name) {
     renderRequestWarnings(name, AppState.manualInput.requests, 'manualWarnings');
   }
@@ -3009,13 +3084,12 @@ function renderRequestWarnings(name, requests, containerId) {
 }
 
 function registerManualStaff() {
-  // スタッフ名を確定（セレクト優先、なければテキスト入力）
-  const selVal   = (document.getElementById('manualStaffSelect')?.value   || '').trim();
-  const inputVal = (document.getElementById('manualStaffNameInput')?.value || '').trim();
-  const name     = selVal || inputVal;
+  // スタッフ名を確定
+  const selVal = (document.getElementById('manualStaffSelect')?.value || '').trim();
+  const name   = selVal;
 
   if (!name) {
-    showToast('スタッフ名を選択または入力してください。', 'error');
+    showToast('スタッフ名を選択してください。', 'error');
     return;
   }
 
@@ -3071,14 +3145,13 @@ function registerManualStaff() {
   document.getElementById('section-staff').style.display              = '';
   document.getElementById('section-individual-settings').style.display = '';
   document.getElementById('section-actions').style.display            = '';
+  document.getElementById('section-danger-actions').style.display            = '';
 
   // 入力エリアをリセット（警告エリアもクリア）
   AppState.manualInput.staffName = '';
   AppState.manualInput.requests  = {};
   const sel = document.getElementById('manualStaffSelect');
   if (sel) sel.value = '';
-  const ni = document.getElementById('manualStaffNameInput');
-  if (ni) ni.value = '';
   const warnEl = document.getElementById('manualWarnings');
   if (warnEl) warnEl.innerHTML = '';
   renderManualDayGrid();
@@ -3106,25 +3179,29 @@ function updateManualRegisteredList() {
     return;
   }
 
-  const redCount = (requests) =>
-    Object.values(requests).filter(v => v === 'red').length;
-  const blueCount = (requests) =>
-    Object.values(requests).filter(v => v === 'blue').length;
+  const period = getCurrentPeriod();
+  const getDates = (requests, type) => Object.entries(requests)
+    .filter(([_, v]) => v === type)
+    .map(([idx]) => `${period.days[idx].month}/${period.days[idx].day}`)
+    .join(', ');
 
   container.innerHTML = `
     <div class="manual-registered-title">✅ 登録済みスタッフ（${AppState.staffList.length}名）</div>
     <div class="manual-registered-grid">
-      ${AppState.staffList.map((s, idx) => `
+      ${AppState.staffList.map((s, idx) => {
+        const redDates = getDates(s.requests, 'red');
+        const blueDates = getDates(s.requests, 'blue');
+        return `
         <div class="manual-reg-item">
           <span class="manual-reg-name">${escapeHtml(s.name)}</span>
           <span class="manual-reg-badges">
-            ${redCount(s.requests)  > 0 ? `<span class="badge badge-red">希望休:${redCount(s.requests)}日</span>` : ''}
-            ${blueCount(s.requests) > 0 ? `<span class="badge badge-blue">休日:${blueCount(s.requests)}日</span>` : ''}
-            ${redCount(s.requests) === 0 && blueCount(s.requests) === 0 ? '<span class="badge-none">希望なし</span>' : ''}
+            ${redDates ? `<span class="badge badge-red">希望休: ${redDates}</span>` : ''}
+            ${blueDates ? `<span class="badge badge-blue">休日: ${blueDates}</span>` : ''}
+            ${!redDates && !blueDates ? '<span class="badge-none">希望なし</span>' : ''}
           </span>
           <button class="btn-remove" type="button" onclick="removeStaffFromManualList(${idx})">削除</button>
         </div>
-      `).join('')}
+      `}).join('')}
     </div>
   `;
 }
@@ -3141,6 +3218,7 @@ function removeStaffFromManualList(idx) {
     document.getElementById('section-staff').style.display              = 'none';
     document.getElementById('section-individual-settings').style.display = 'none';
     document.getElementById('section-actions').style.display            = 'none';
+    document.getElementById('section-danger-actions').style.display            = 'none';
   } else {
     renderStaffList();
   }
