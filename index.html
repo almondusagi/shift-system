@@ -3,495 +3,705 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>シフト表作成システム</title>
+  <title>ShiftPlan v2 - シフト管理システム</title>
+  <meta name="description" content="スタッフの希望を考慮して公平なシフト表を自動生成するシステム">
   <link rel="stylesheet" href="style.css">
-
-  <!--
-  ═══════════════════════════════════════════════════════════
-  ■ SheetJS (xlsx.js) セットアップ方法
-  ═══════════════════════════════════════════════════════════
-  【オフライン環境（推奨）】
-  1. 以下のURLにアクセスしてファイルをダウンロード:
-     https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js
-  2. ダウンロードしたファイルを index.html と同じフォルダに
-     「xlsx.full.min.js」という名前で保存する
-  3. ブラウザで index.html を開く
-
-  【インターネット接続ありの場合】
-  ローカルファイルが見つからない場合、自動的にCDNから読み込みます。
-  ═══════════════════════════════════════════════════════════
-  -->
-
-  <!-- まずローカルのxlsx.full.min.jsを試みる（オフライン用） -->
-  <script>
-    // ローカルファイルの読み込み成否を追跡するフラグ
-    window._xlsxLocalLoaded = false;
-  </script>
-  <script src="xlsx.full.min.js" onload="window._xlsxLocalLoaded = true;"></script>
-  <script>
-    // ローカルファイルが読み込めなかった場合、CDNから動的に読み込む
-    if (!window._xlsxLocalLoaded && typeof XLSX === 'undefined') {
-      var cdnScript = document.createElement('script');
-      cdnScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-      cdnScript.onerror = function() {
-        console.warn('SheetJS CDN読み込みも失敗しました。xlsx.full.min.jsをローカルに配置してください。');
-      };
-      document.head.appendChild(cdnScript);
-    }
-  </script>
 </head>
 <body>
-
-<div id="app">
-
-  <!-- ═══ ヘッダー ═══ -->
-  <header class="app-header">
-    <div class="header-inner">
-      <div class="header-title">
-        <span class="header-icon">📋</span>
-        <div>
-          <h1>シフト表作成システム</h1>
-          <p>スタッフの希望シートを読み込んでシフト表を自動生成します</p>
+  <div id="app">
+    <!-- ヘッダー -->
+    <header class="app-header">
+      <div class="header-inner">
+        <div class="header-brand">
+          <div class="brand-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+          </div>
+          <span class="brand-name">ShiftPlan</span>
+          <span class="brand-sub">v2 シフト管理システム</span>
+        </div>
+        <div class="header-actions">
+          <span class="save-status" id="saveStatus">✓ 自動保存済み</span>
         </div>
       </div>
-    </div>
-  </header>
+    </header>
 
-  <main class="app-main">
-
-    <!-- ─── STEP 1: 対象月・勤務条件設定 ─── -->
-    <section class="card collapsible-card" id="section-settings">
-      <div class="card-header step-header" data-target="settings-body">
-        <span class="step-badge">STEP 1</span>
-        <h2>対象月・勤務条件の設定</h2>
-        <span class="collapse-icon">▲</span>
+    <!-- タブナビゲーション -->
+    <nav class="tab-nav" id="tabNav">
+      <div class="tab-nav-inner">
+        <button class="tab-btn active" data-tab="staff">
+          <span class="tab-icon">👤</span>
+          <span class="tab-label">スタッフ管理</span>
+        </button>
+        <button class="tab-btn" data-tab="step1">
+          <span class="tab-icon">①</span>
+          <span class="tab-label">STEP1</span>
+          <span class="tab-desc">基本設定</span>
+        </button>
+        <button class="tab-btn" data-tab="step2">
+          <span class="tab-icon">②</span>
+          <span class="tab-label">STEP2</span>
+          <span class="tab-desc">希望休</span>
+        </button>
+        <button class="tab-btn" data-tab="step3">
+          <span class="tab-icon">③</span>
+          <span class="tab-label">STEP3</span>
+          <span class="tab-desc">勤務計画</span>
+        </button>
+        <button class="tab-btn" data-tab="step4">
+          <span class="tab-icon">④</span>
+          <span class="tab-label">STEP4</span>
+          <span class="tab-desc">例外設定</span>
+        </button>
+        <button class="tab-btn" data-tab="step5">
+          <span class="tab-icon">⑤</span>
+          <span class="tab-label">STEP5</span>
+          <span class="tab-desc">前月シフト</span>
+        </button>
+        <button class="tab-btn tab-generate" data-tab="result">
+          <span class="tab-icon">📋</span>
+          <span class="tab-label">生成結果</span>
+        </button>
       </div>
-      <div class="card-body collapsible-body" id="settings-body">
+    </nav>
 
-        <!-- 対象月 -->
-        <div class="settings-group">
-          <h3 class="settings-group-title">📅 対象月</h3>
-          <div class="month-picker">
-            <select id="yearSelect" class="select-input"></select>
-            <select id="monthSelect" class="select-input"></select>
-            <span id="monthPeriodLabel" class="month-days-label"></span>
+    <!-- メインコンテンツ -->
+    <main class="main-content">
+
+      <!-- ===== スタッフ管理 ===== -->
+      <section class="tab-panel active" id="panel-staff">
+        <div class="panel-header">
+          <h2 class="panel-title">スタッフ管理</h2>
+          <div class="panel-actions">
+            <button class="btn btn-outline btn-sm" id="exportStaffCSV">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              CSV出力
+            </button>
+            <label class="btn btn-outline btn-sm" for="importStaffCSV">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              CSV読込
+              <input type="file" id="importStaffCSV" accept=".csv" style="display:none">
+            </label>
           </div>
         </div>
 
-        <hr class="settings-divider">
-
-        <!-- 基本勤務時間 -->
-        <div class="settings-group">
-          <h3 class="settings-group-title">🕐 基本勤務時間</h3>
-          <div class="time-range-row">
-            <select id="baseWorkStart" class="select-input time-select"></select>
-            <span class="time-separator">から</span>
-            <select id="baseWorkEnd" class="select-input time-select"></select>
-          </div>
-        </div>
-
-        <hr class="settings-divider">
-
-        <!-- 人数設定 -->
-        <div class="settings-group">
-          <h3 class="settings-group-title">👥 人数設定</h3>
-          <div class="settings-grid">
-            <div class="setting-item">
-              <label for="minStaffPerDay">最低出勤人数</label>
-              <div class="setting-field">
-                <input type="number" id="minStaffPerDay" class="setting-input" value="1" min="0" max="99">
-                <span class="setting-unit">人/日</span>
-              </div>
+        <div class="form-card">
+          <h3 class="form-section-title">スタッフ登録</h3>
+          <div class="form-grid staff-form-grid">
+            <div class="form-group">
+              <label class="form-label required">スタッフ名</label>
+              <input type="text" class="form-input" id="staffName" placeholder="例：山田 太郎">
             </div>
-            <div class="setting-item">
-              <label for="minEmployeePerDay">最低出勤人数（社員）</label>
-              <div class="setting-field">
-                <input type="number" id="minEmployeePerDay" class="setting-input" value="1" min="0" max="99">
-                <span class="setting-unit">人/日</span>
-              </div>
-            </div>
-            <div class="setting-item">
-              <label for="earlyShiftCount">早番</label>
-              <div class="setting-field">
-                <input type="number" id="earlyShiftCount" class="setting-input" value="1" min="0" max="99">
-                <span class="setting-unit">人</span>
-              </div>
-              <span class="setting-hint-inline">勤務開始時間に出勤できる人数</span>
-            </div>
-            <div class="setting-item">
-              <label for="lateShiftCount">遅番</label>
-              <div class="setting-field">
-                <input type="number" id="lateShiftCount" class="setting-input" value="1" min="0" max="99">
-                <span class="setting-unit">人</span>
-              </div>
-              <span class="setting-hint-inline">勤務終了時間まで入れる人数</span>
-            </div>
-          </div>
-        </div>
-
-
-      </div>
-    </section>
-
-    <!-- ─── STEP 2: スタッフ管理 ─── -->
-    <section class="card collapsible-card" id="section-staff-management">
-      <div class="card-header step-header" data-target="staff-management-body">
-        <span class="step-badge">STEP 2</span>
-        <h2>スタッフ管理</h2>
-        <span id="registeredStaffCount" class="staff-count-badge"></span>
-        <span class="collapse-icon">▲</span>
-      </div>
-      <div class="card-body collapsible-body" id="staff-management-body">
-
-        <!-- 新規登録フォーム -->
-        <div class="register-form-wrapper">
-          <div class="register-form-grid">
-            <div class="form-field required">
-              <label for="regStaffName">スタッフ名</label>
-              <input type="text" id="regStaffName" class="form-input" placeholder="名前">
-            </div>
-            <div class="form-field required">
-              <label for="regStaffCategory">区分</label>
-              <select id="regStaffCategory" class="select-input">
-                <option value="">選択</option>
-                <option value="employee">社員</option>
+            <div class="form-group">
+              <label class="form-label required">区分</label>
+              <select class="form-select" id="staffCategory">
+                <option value="">選択してください</option>
                 <option value="community">コミュニティ</option>
+                <option value="employee">社員</option>
               </select>
             </div>
-            <div class="form-field">
-              <label for="regMonthlyHours">月所定労働時間</label>
-              <div class="setting-field">
-                <input type="number" id="regMonthlyHours" class="form-input sm" placeholder="160" min="0" max="400">
-                <span class="setting-unit">h</span>
+            <div class="form-group">
+              <label class="form-label">月所定労働時間</label>
+              <div class="input-with-unit">
+                <input type="number" class="form-input" id="monthlyHours" placeholder="160" min="0" max="744">
+                <span class="input-unit">時間</span>
               </div>
             </div>
-            <div class="form-field">
-              <label for="regWeeklyHours">週所定労働時間</label>
-              <div class="setting-field">
-                <input type="number" id="regWeeklyHours" class="form-input sm" placeholder="40" min="0" max="168">
-                <span class="setting-unit">h</span>
+            <div class="form-group">
+              <label class="form-label">出勤目安/週<span style="font-size:11px;color:var(--color-text-muted);margin-left:4px">（自動計算）</span></label>
+              <div class="auto-calc-display" id="weeklyDaysDisplay" style="padding:8px 12px;background:var(--color-bg-secondary,#f8f9fa);border-radius:6px;font-size:14px;color:var(--color-text-secondary,#555);min-height:36px;display:flex;align-items:center">
+                月所定と1日労働時間を入力してください
               </div>
             </div>
-            <div class="form-field">
-              <label for="regDailyHours">1日勤務時間</label>
-              <div class="setting-field">
-                <input type="number" id="regDailyHours" class="form-input sm" placeholder="8" min="0" max="24" step="0.5">
-                <span class="setting-unit">h</span>
+            <div class="form-group">
+              <label class="form-label">1日労働時間</label>
+              <div class="input-with-unit">
+                <input type="number" class="form-input" id="dailyHours" placeholder="8" min="0" max="24" step="0.5">
+                <span class="input-unit">時間</span>
               </div>
             </div>
-            <div class="form-field">
-              <label>勤務可能時間帯</label>
-              <div class="time-range-row compact">
-                <select id="regAvailStart" class="select-input time-select sm"></select>
-                <span class="time-separator">〜</span>
-                <select id="regAvailEnd" class="select-input time-select sm"></select>
+            <div class="form-group form-group-checkbox">
+              <label class="form-label">1h休憩の有無</label>
+              <label class="checkbox-label" id="breakCheckWrapper" style="opacity:0.4;pointer-events:none">
+                <input type="checkbox" id="hasBreak5h">
+                <span class="checkbox-custom"></span>
+                <span>1h休憩あり</span>
+              </label>
+            </div>
+            <div class="form-group form-group-wide">
+              <label class="form-label">勤務可能時間帯</label>
+              <div class="time-range-input">
+                <select class="form-select form-select-sm" id="workStartAmPm">
+                  <option value="am">午前</option>
+                  <option value="pm">午後</option>
+                </select>
+                <input type="time" class="form-input form-input-sm" id="workStartTime" placeholder="09:00">
+                <span class="time-sep">〜</span>
+                <select class="form-select form-select-sm" id="workEndAmPm">
+                  <option value="am">午前</option>
+                  <option value="pm" selected>午後</option>
+                </select>
+                <input type="time" class="form-input form-input-sm" id="workEndTime" placeholder="18:00">
               </div>
+              <p class="form-hint">未入力時：STEP1の始業〜終業まで勤務可能。<br>早番・遅番の対象は勤務可能時間帯と就業時間の比較で自動判定されます。</p>
+            </div>
+            <div class="form-group">
+              <label class="form-label">休日日数<span style="font-size:11px;color:var(--color-text-muted);margin-left:4px">（月）</span></label>
+              <div class="input-with-unit">
+                <input type="number" class="form-input" id="minRestDays" placeholder="8" min="0" max="31">
+                <span class="input-unit">日</span>
+              </div>
+              <p class="form-hint">希望休を含む・有給は含まない（最低休日数として適用）</p>
             </div>
           </div>
-          <button id="registerStaffBtn" class="btn btn-primary" type="button">➕ 登録</button>
-        </div>
 
-        <p class="settings-hint">※ スタッフ名と区分は必須です。未入力の項目はデフォルト値（月160h/週40h/日8h）が適用されます。</p>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="registerStaff">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              スタッフを登録
+            </button>
+            <button class="btn btn-ghost" id="clearStaffForm">クリア</button>
+          </div>
 
-        <!-- バックアップ / 復元 -->
-        <div class="backup-restore-bar">
-          <span class="backup-restore-label">💾 スタッフデータ</span>
-          <button class="btn btn-secondary btn-sm" type="button" onclick="backupStaffData()">バックアップ（JSONダウンロード）</button>
-          <label class="btn btn-secondary btn-sm backup-restore-file-label" title="JSONファイルから復元">
-            復元（JSONアップロード）
-            <input type="file" id="restoreFileInput" accept=".json" style="display:none" onchange="restoreStaffData(this)">
-          </label>
+          <div class="form-notes">
+            <p>※ スタッフ名・区分は必須です</p>
+            <p>※ 月所定労働時間未入力時は160時間として計算します</p>
+            <p>※ 出勤目安/週 = 月所定 ÷ 1日労働時間 ÷ 4 で自動算出されます</p>
+            <p>※ 最低休日数未入力時はデフォルト8日が適用されます</p>
+          </div>
         </div>
 
         <!-- 登録済みスタッフ一覧 -->
-        <div id="registeredStaffList"></div>
-
-      </div>
-    </section>
-
-    <!-- ─── STEP 3: ファイルアップロード / 手入力 ─── -->
-    <section class="card collapsible-card" id="section-upload">
-      <div class="card-header step-header" data-target="upload-body">
-        <span class="step-badge">STEP 3</span>
-        <h2>希望休の入力</h2>
-        <span class="collapse-icon">▲</span>
-      </div>
-      <div class="card-body collapsible-body" id="upload-body">
-
-        <!-- タブ切り替え -->
-        <div class="upload-tabs">
-          <button class="upload-tab upload-tab-active" id="tab-excel"
-                  type="button" onclick="switchUploadTab('excel')">
-            📁 Excelアップロード
-          </button>
-          <button class="upload-tab" id="tab-manual"
-                  type="button" onclick="switchUploadTab('manual')">
-            ✏️ 手入力
-          </button>
-        </div>
-
-        <!-- ─ Excelパネル ─ -->
-        <div id="panel-excel">
-
-          <!-- ドラッグ＆ドロップエリア -->
-          <div id="dropzone" class="dropzone">
-            <div class="dropzone-icon">📁</div>
-            <p class="dropzone-main">ファイルをここにドラッグ＆ドロップ</p>
-            <p class="dropzone-sub">または</p>
-            <button id="uploadBtn" class="btn btn-secondary" type="button">ファイルを選択</button>
-            <p class="dropzone-hint">対応形式：.xlsx / .xls（複数ファイル同時選択可）</p>
+        <div class="list-card" id="staffListCard">
+          <div class="list-header">
+            <h3 class="list-title">登録済みスタッフ <span class="badge" id="staffCount">0</span></h3>
+            <div class="list-filter">
+              <button class="filter-btn active" data-filter="all">全員</button>
+              <button class="filter-btn" data-filter="employee">社員</button>
+              <button class="filter-btn" data-filter="community">コミュニティ</button>
+            </div>
           </div>
-          <input type="file" id="fileInput" multiple accept=".xlsx,.xls" hidden>
-
-          <!-- Excelフォーマット説明 -->
-          <div class="excel-format-note">
-            <h3>📋 スタッフ提出Excelのフォーマット</h3>
-            <table class="format-table">
+          <div class="table-wrapper">
+            <table class="data-table" id="staffTable">
               <thead>
-                <tr><th>A列（日付）</th><th>B列（希望内容）</th></tr>
+                <tr>
+                  <th data-sort-key="name" style="cursor:pointer;user-select:none"><span class="sort-arrow">▲▼</span>スタッフ名</th>
+                  <th data-sort-key="category" style="cursor:pointer;user-select:none"><span class="sort-arrow">▲▼</span>区分</th>
+                  <th data-sort-key="monthlyHours" style="cursor:pointer;user-select:none"><span class="sort-arrow">▲▼</span>月所定</th>
+                  <th data-sort-key="weeklyDays" style="cursor:pointer;user-select:none"><span class="sort-arrow">▲▼</span>出勤目安/週</th>
+                  <th data-sort-key="dailyHours" style="cursor:pointer;user-select:none"><span class="sort-arrow">▲▼</span>1日</th>
+                  <th data-sort-key="hasBreak5h" style="cursor:pointer;user-select:none"><span class="sort-arrow">▲▼</span>1h休憩</th>
+                  <th data-sort-key="workTime" style="cursor:pointer;user-select:none"><span class="sort-arrow">▲▼</span>勤務可能時間</th>
+                  <th data-sort-key="minRestDays" style="cursor:pointer;user-select:none"><span class="sort-arrow">▲▼</span>休日日数</th>
+                  <th>操作</th>
+                </tr>
               </thead>
-              <tbody>
-                <tr>
-                  <td>21〜翌月20（日の数値）</td>
-                  <td>空欄 ＝ 出勤可能</td>
-                </tr>
-                <tr>
-                  <td></td>
-                  <td class="cell-red">希望休 ＝ 絶対休み</td>
-                </tr>
-                <tr>
-                  <td></td>
-                  <td class="cell-blue">休日 ＝ できれば休み</td>
-                </tr>
+              <tbody id="staffTableBody">
+                <tr class="empty-row"><td colspan="9">スタッフが登録されていません</td></tr>
               </tbody>
             </table>
-            <p class="format-note">※ 登録済みスタッフ名がファイル名に含まれていれば自動で紐づけされます</p>
-            <p class="format-note">※ B列は「希望休」「休日」の文字を含むセルを自動判定します</p>
           </div>
+        </div>
+      </section>
 
-          <!-- Excel アップロード後の警告チェックボックスエリア -->
-          <div id="excelWarnings" class="warnings-container"></div>
-        </div><!-- /#panel-excel -->
+      <!-- ===== STEP1 ===== -->
+      <section class="tab-panel" id="panel-step1">
+        <div class="panel-header">
+          <h2 class="panel-title">STEP1 <span class="panel-subtitle">基本設定</span></h2>
+        </div>
 
-        <!-- ─ 手入力パネル ─ -->
-        <div id="panel-manual" style="display:none">
-          <div class="manual-input-wrapper">
-
-            <!-- スタッフ選択 -->
-            <div class="manual-staff-row">
-              <div class="form-field" style="flex:1; min-width:140px;">
-                <label class="manual-label">スタッフ選択（登録済み）</label>
-                <select id="manualStaffSelect" class="select-input"
-                        onchange="onManualStaffChange(this.value)">
-                  <option value="">-- 選択 --</option>
+        <div class="form-card">
+          <h3 class="form-section-title">対象年月・期間</h3>
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">対象年月</label>
+              <div class="date-select-group">
+                <select class="form-select" id="targetYear"></select>
+                <span>年</span>
+                <select class="form-select" id="targetMonth">
+                  <option value="1">1月</option><option value="2">2月</option>
+                  <option value="3">3月</option><option value="4">4月</option>
+                  <option value="5">5月</option><option value="6">6月</option>
+                  <option value="7">7月</option><option value="8">8月</option>
+                  <option value="9">9月</option><option value="10">10月</option>
+                  <option value="11">11月</option><option value="12">12月</option>
                 </select>
+                <span>月</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">開始日</label>
+              <div class="input-with-unit">
+                <input type="number" class="form-input" id="startDay" min="1" max="31" value="1" placeholder="1">
+                <span class="input-unit">日〜翌月前日まで</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">期間プレビュー</label>
+              <div class="period-preview" id="periodPreview">— 年月・開始日を入力してください —</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <h3 class="form-section-title">基本就業時間</h3>
+          <div class="form-grid">
+            <div class="form-group form-group-wide">
+              <label class="form-label">就業時間</label>
+              <div class="time-range-input">
+                <select class="form-select form-select-sm" id="bizStartAmPm">
+                  <option value="am">午前</option>
+                  <option value="pm">午後</option>
+                </select>
+                <input type="time" class="form-input form-input-sm" id="bizStartTime" value="09:00">
+                <span class="time-sep">〜</span>
+                <select class="form-select form-select-sm" id="bizEndAmPm">
+                  <option value="am">午前</option>
+                  <option value="pm" selected>午後</option>
+                </select>
+                <input type="time" class="form-input form-input-sm" id="bizEndTime" value="18:00">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <h3 class="form-section-title">出勤人数設定（最低〜最大）</h3>
+          <p class="form-hint" style="margin-bottom:12px">※ 最大欄を空欄にすると上限なし。全項目絶対ルールとして適用されます。</p>
+          <div class="form-grid form-grid-range">
+            <div class="form-group range-group">
+              <label class="form-label">全体出勤人数</label>
+              <div class="range-input-row">
+                <input type="number" class="form-input form-input-sm" id="minStaff" min="0" value="1" placeholder="最低">
+                <span class="range-sep">〜</span>
+                <input type="number" class="form-input form-input-sm" id="maxStaff" min="0" placeholder="最大">
+                <span class="input-unit">人</span>
+              </div>
+              <p class="form-hint">最低・最大共に空欄 = 制限なし</p>
+            </div>
+            <div class="form-group range-group">
+              <label class="form-label">社員出勤人数</label>
+              <div class="range-input-row">
+                <input type="number" class="form-input form-input-sm" id="minEmployee" min="0" value="0" placeholder="最低">
+                <span class="range-sep">〜</span>
+                <input type="number" class="form-input form-input-sm" id="maxEmployee" min="0" placeholder="最大">
+                <span class="input-unit">人</span>
+              </div>
+              <p class="form-hint">最低・最大共に空欄 = 制限なし</p>
+            </div>
+            <div class="form-group range-group">
+              <label class="form-label">早番人数</label>
+              <div class="range-input-row">
+                <input type="number" class="form-input form-input-sm" id="earlyCountMin" min="0" value="0" placeholder="最低">
+                <span class="range-sep">〜</span>
+                <input type="number" class="form-input form-input-sm" id="earlyCountMax" min="0" placeholder="最大">
+                <span class="input-unit">人</span>
+              </div>
+              <p class="form-hint">早番対象: 就業開始時刻から勤務可能なスタッフ。最低・最大共に空欄 = 制限なし</p>
+            </div>
+            <div class="form-group range-group">
+              <label class="form-label">遅番人数</label>
+              <div class="range-input-row">
+                <input type="number" class="form-input form-input-sm" id="lateCountMin" min="0" value="0" placeholder="最低">
+                <span class="range-sep">〜</span>
+                <input type="number" class="form-input form-input-sm" id="lateCountMax" min="0" placeholder="最大">
+                <span class="input-unit">人</span>
+              </div>
+              <p class="form-hint">遅番対象: 就業終了時刻まで勤務可能なスタッフ。最低・最大共に空欄 = 制限なし</p>
+            </div>
+          </div>
+          <div class="form-notes">
+            <p>※ STEP4の例外設定は最優先されます</p>
+          </div>
+        </div>
+
+        <div class="form-actions-bottom">
+          <button class="btn btn-primary" id="saveStep1">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            STEP1を保存
+          </button>
+        </div>
+      </section>
+
+      <!-- ===== STEP2 ===== -->
+      <section class="tab-panel" id="panel-step2">
+        <div class="panel-header">
+          <h2 class="panel-title">STEP2 <span class="panel-subtitle">希望休入力</span></h2>
+        </div>
+
+        <div class="step2-layout">
+          <div class="step2-sidebar">
+            <div class="form-card">
+              <h3 class="form-section-title">スタッフ選択</h3>
+              <div id="step2StaffList" class="staff-select-list">
+                <p class="empty-hint">スタッフ管理でスタッフを登録してください</p>
               </div>
             </div>
 
-            <!-- 凡例 -->
-            <div class="manual-legend">
-              <span>セルをクリックして希望を入力：</span>
-              <span><span class="mgrid-btn mgrid-avail mgrid-legend-samp">空</span> 出勤可</span>
-              <span><span class="mgrid-btn mgrid-red  mgrid-legend-samp">赤</span> 希望休</span>
-              <span><span class="mgrid-btn mgrid-blue mgrid-legend-samp">青</span> 休日</span>
-              <span class="manual-legend-hint">（クリックするたびに 空→赤→青→空 と切り替わります）</span>
+            <div class="form-card">
+              <h3 class="form-section-title">登録状況</h3>
+              <div id="step2RegisterStatus">
+                <p class="status-text">登録済み：<span id="step2RegisteredCount">0</span>人</p>
+                <p class="status-label">未登録：</p>
+                <p class="status-text unregistered" id="step2UnregisteredList">—</p>
+              </div>
             </div>
 
-            <!-- 日付グリッド -->
-            <div id="manualDayGrid" class="manual-day-grid"></div>
-
-            <!-- 操作ボタン -->
-            <div class="manual-actions">
-              <button class="btn btn-primary" type="button" onclick="registerManualStaff()">
-                ✅ 登録・更新
-              </button>
-              <button class="btn btn-secondary" type="button" onclick="clearManualInput()">
-                🗑 クリア
-              </button>
+            <div class="legend-card">
+              <h3 class="form-section-title">凡例</h3>
+              <div class="legend-items">
+                <div class="legend-item"><span class="legend-cell cell-available"></span><span>出勤可能</span></div>
+                <div class="legend-item"><span class="legend-cell cell-wish-off"></span><span>希望休（絶対休み）</span></div>
+                <div class="legend-item"><span class="legend-cell cell-paid"></span><span>有給</span></div>
+                <div class="legend-item"><span class="legend-cell cell-prefer-off"></span><span>なるべく休み（妥協可）</span></div>
+              </div>
+              <p class="legend-note">※ セルをクリックするたびに状態が切り替わります</p>
             </div>
-
-            <!-- 手入力警告チェックボックスエリア -->
-            <div id="manualWarnings" class="warnings-container"></div>
-
-            <!-- 登録済み一覧 -->
-            <div id="manualRegisteredList"></div>
-
           </div>
-        </div><!-- /#panel-manual -->
 
-      </div>
-    </section>
+          <div class="step2-main">
+            <div class="form-card">
+              <div class="step2-calendar-header">
+                <h3 class="form-section-title" id="step2CalendarTitle">カレンダー</h3>
+                <div class="step2-actions">
+                  <button class="btn btn-primary btn-sm" id="registerStep2">登録</button>
+                  <button class="btn btn-outline btn-sm" id="clearStep2">クリア</button>
+                </div>
+              </div>
+              <div id="step2CalendarWrapper">
+                <p class="empty-hint center">STEP1で期間を設定し、スタッフを選択してください</p>
+              </div>
+            </div>
 
-    <!-- ─── STEP 4: スタッフ設定 ─── -->
-    <section class="card collapsible-card" id="section-staff" style="display:none">
-      <div class="card-header step-header" data-target="staff-body">
-        <span class="step-badge">STEP 4</span>
-        <h2>スタッフ設定</h2>
-        <span id="staffCount" class="staff-count-badge"></span>
-        <span class="collapse-icon">▲</span>
-      </div>
-      <div class="card-body collapsible-body" id="staff-body">
-        <p class="section-desc">各スタッフの勤務条件を確認・調整してください。ここでの編集は今回のシフト作成にのみ適用されます。</p>
-        <div class="staff-list-header-v2">
-          <span>スタッフ名</span>
-          <span>区分</span>
-          <span>月所定</span>
-          <span>週所定</span>
-          <span>1日</span>
-          <span>勤務可能</span>
-          <span>希望</span>
-          <span>操作</span>
+            <div class="form-card" id="step2RegisteredListCard">
+              <h3 class="form-section-title">登録済み一覧</h3>
+              <div class="table-wrapper">
+                <table class="data-table" id="step2RegisteredTable">
+                  <thead>
+                    <tr>
+                      <th data-sort-key="name" style="cursor:pointer;user-select:none"><span class="sort-arrow">▲▼</span>スタッフ名</th>
+                      <th data-sort-key="wish" style="cursor:pointer;user-select:none"><span class="sort-arrow">▲▼</span>希望休</th>
+                      <th data-sort-key="paid" style="cursor:pointer;user-select:none"><span class="sort-arrow">▲▼</span>有給</th>
+                      <th data-sort-key="pref" style="cursor:pointer;user-select:none"><span class="sort-arrow">▲▼</span>なるべく休み</th>
+                      <th>休日希望日</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="step2RegisteredBody">
+                    <tr class="empty-row"><td colspan="6">登録データがありません</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
-        <div id="staffList"></div>
-      </div>
-    </section>
+      </section>
 
-    <!-- ─── STEP 5: 個別シフト設定 ─── -->
-    <section class="card collapsible-card" id="section-individual-settings" style="display:none">
-      <div class="card-header step-header" data-target="individual-settings-body">
-        <span class="step-badge">STEP 5</span>
-        <h2>個別シフト設定</h2>
-        <span class="collapse-icon">▲</span>
-      </div>
-      <div class="card-body collapsible-body" id="individual-settings-body">
-        <p class="section-desc">日付ごとに特別な勤務時間、人数制限、および強制出勤させるスタッフを設定できます。<br>※ここで「指定する」で割り当てられたスタッフの出勤は、希望休や勤務可能時間などの制約よりも優先して適用されます。</p>
-        
-        <div class="individual-settings-actions">
-          <button id="addIndividualSettingBtn" class="btn btn-secondary btn-sm" type="button">➕ 新しい個別設定を追加</button>
-        </div>
-        
-        <div id="individualSettingsContainer"></div>
-      </div>
-    </section>
-
-    <!-- ─── アクションボタン ─── -->
-    <div class="action-row" id="section-actions" style="display:none">
-      <button id="generateBtn" class="btn btn-primary btn-large" type="button">
-        ⚡ シフト表を生成
-      </button>
-    </div>
-
-    <!-- ─── STEP 5: 結果表示 ─── -->
-    <section class="card collapsible-card" id="section-result" style="display:none">
-      <div class="card-header step-header" data-target="result-body">
-        <h2>📊 生成されたシフト表</h2>
-        <div class="result-header-actions">
-          <span id="resultMonthLabel" class="result-month-label"></span>
-          <button id="exportBtn" class="btn btn-export" type="button">📥 CSVエクスポート</button>
-        </div>
-        <span class="collapse-icon">▲</span>
-      </div>
-      <div class="card-body collapsible-body" id="result-body">
-
-        <!-- 凡例 -->
-        <div class="legend">
-          <span class="legend-item">
-            <span class="legend-dot shift-work"></span>出勤
-          </span>
-          <span class="legend-item">
-            <span class="legend-dot shift-off-red"></span>希望休（赤）
-          </span>
-          <span class="legend-item">
-            <span class="legend-dot shift-off-blue"></span>休日（青）
-          </span>
-          <span class="legend-item">
-            <span class="legend-dot shift-off"></span>休（調整）
-          </span>
+      <!-- ===== STEP3 ===== -->
+      <section class="tab-panel" id="panel-step3">
+        <div class="panel-header">
+          <h2 class="panel-title">STEP3 <span class="panel-subtitle">勤務計画（スタッフ別）</span></h2>
         </div>
 
-        <!-- シフト表テーブル -->
-        <div class="table-wrapper" id="tableWrapper">
-          <div id="resultTable"></div>
+        <div class="info-banner">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          スタッフ管理の情報を引き継ぎます。ここでの変更は今月限定の上書きです。STEP4が最優先されます。
         </div>
 
-        <!-- 注意書き -->
-        <div class="result-notes">
-          <p>※ 赤数字（例：<span class="note-over">+8h</span>）は所定時間超過、青数字（例：<span class="note-under">-8h</span>）は不足を示します</p>
+        <div class="form-card">
+          <div class="table-wrapper">
+            <table class="data-table" id="step3Table">
+              <thead>
+                <tr>
+                  <th>スタッフ名</th>
+                  <th>区分</th>
+                  <th>月所定労働時間</th>
+                  <th>出勤目安/週</th>
+                  <th>1日労働時間</th>
+                  <th>休日日数</th>
+                  <th>勤務可能時間</th>
+                  <th>1h休憩有無</th>
+                </tr>
+              </thead>
+              <tbody id="step3TableBody">
+                <tr class="empty-row"><td colspan="8">スタッフが登録されていません</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="form-actions-bottom" style="margin-top:16px">
+            <button class="btn btn-primary" id="saveStep3">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              STEP3を保存
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== STEP4 ===== -->
+      <section class="tab-panel" id="panel-step4">
+        <div class="panel-header">
+          <h2 class="panel-title">STEP4 <span class="panel-subtitle">例外シフト設定</span></h2>
         </div>
 
+        <div class="info-banner info-banner-warning">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          ここで設定したルールは最優先されます
+        </div>
+
+        <div class="form-card">
+          <h3 class="form-section-title">例外シフト追加</h3>
+          <div class="form-grid">
+            <div class="form-group form-group-wide">
+              <label class="form-label">対象日付</label>
+              <div class="date-picker-area" id="step4DatePicker">
+                <div class="date-picker-controls">
+                  <input type="date" class="form-input" id="step4DateInput">
+                  <button class="btn btn-outline btn-sm" id="step4AddDate">日付を追加</button>
+                  <span class="or-divider">または</span>
+                  <input type="number" class="form-input form-input-sm" id="step4DayCount" placeholder="日数" min="1">
+                  <span>日間</span>
+                  <button class="btn btn-outline btn-sm" id="step4AddDays">連続追加</button>
+                </div>
+                <div class="selected-dates" id="step4SelectedDates">
+                  <span class="empty-hint">日付が選択されていません</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">就業時間変更</label>
+              <div class="toggle-group">
+                <label class="radio-label"><input type="radio" name="step4WorkTime" value="none" checked><span>変更なし</span></label>
+                <label class="radio-label"><input type="radio" name="step4WorkTime" value="change"><span>変更あり</span></label>
+              </div>
+              <div class="conditional-field" id="step4WorkTimeField" style="display:none">
+                <div class="time-range-input">
+                  <select class="form-select form-select-sm" id="step4StartAmPm"><option value="am">午前</option><option value="pm">午後</option></select>
+                  <input type="time" class="form-input form-input-sm" id="step4StartTime">
+                  <span class="time-sep">〜</span>
+                  <select class="form-select form-select-sm" id="step4EndAmPm"><option value="am">午前</option><option value="pm" selected>午後</option></select>
+                  <input type="time" class="form-input form-input-sm" id="step4EndTime">
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">出勤人数変更</label>
+              <div class="toggle-group">
+                <label class="radio-label"><input type="radio" name="step4StaffCount" value="none" checked><span>変更なし</span></label>
+                <label class="radio-label"><input type="radio" name="step4StaffCount" value="change"><span>変更あり</span></label>
+              </div>
+              <div class="conditional-field" id="step4StaffCountField" style="display:none">
+                <div class="form-grid form-grid-range mt-8">
+                  <div class="form-group range-group">
+                    <label class="form-label-sm">全体</label>
+                    <div class="range-input-row">
+                      <input type="number" class="form-input form-input-sm" id="step4MinStaff" min="0" placeholder="最低">
+                      <span class="range-sep">〜</span>
+                      <input type="number" class="form-input form-input-sm" id="step4MaxStaff" min="0" placeholder="最大">
+                      <span class="input-unit">人</span>
+                    </div>
+                  </div>
+                  <div class="form-group range-group">
+                    <label class="form-label-sm">社員</label>
+                    <div class="range-input-row">
+                      <input type="number" class="form-input form-input-sm" id="step4MinEmployee" min="0" placeholder="最低">
+                      <span class="range-sep">〜</span>
+                      <input type="number" class="form-input form-input-sm" id="step4MaxEmployee" min="0" placeholder="最大">
+                      <span class="input-unit">人</span>
+                    </div>
+                  </div>
+                  <div class="form-group range-group">
+                    <label class="form-label-sm">早番</label>
+                    <div class="range-input-row">
+                      <input type="number" class="form-input form-input-sm" id="step4EarlyCountMin" min="0" placeholder="最低">
+                      <span class="range-sep">〜</span>
+                      <input type="number" class="form-input form-input-sm" id="step4EarlyCountMax" min="0" placeholder="最大">
+                      <span class="input-unit">人</span>
+                    </div>
+                  </div>
+                  <div class="form-group range-group">
+                    <label class="form-label-sm">遅番</label>
+                    <div class="range-input-row">
+                      <input type="number" class="form-input form-input-sm" id="step4LateCountMin" min="0" placeholder="最低">
+                      <span class="range-sep">〜</span>
+                      <input type="number" class="form-input form-input-sm" id="step4LateCountMax" min="0" placeholder="最大">
+                      <span class="input-unit">人</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group form-group-wide">
+              <label class="form-label">対象者</label>
+              <div class="toggle-group">
+                <label class="radio-label"><input type="radio" name="step4Target" value="all" checked><span>全員</span></label>
+                <label class="radio-label"><input type="radio" name="step4Target" value="employee"><span>社員</span></label>
+                <label class="radio-label"><input type="radio" name="step4Target" value="community"><span>コミュニティ</span></label>
+                <label class="radio-label"><input type="radio" name="step4Target" value="individual"><span>個別指定</span></label>
+              </div>
+              <div class="conditional-field" id="step4IndividualField" style="display:none">
+                <div class="staff-checkbox-group" id="step4StaffCheckboxes"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button class="btn btn-primary" id="addStep4Exception">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              ＋ 例外シフト追加
+            </button>
+          </div>
+        </div>
+
+        <div class="list-card">
+          <h3 class="list-title">登録済み例外設定 <span class="badge" id="step4Count">0</span></h3>
+          <div id="step4ExceptionList" class="exception-list">
+            <p class="empty-hint">例外設定が登録されていません</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== STEP5 ===== -->
+      <section class="tab-panel" id="panel-step5">
+        <div class="panel-header">
+          <h2 class="panel-title">STEP5 <span class="panel-subtitle">前月シフト</span></h2>
+        </div>
+
+        <div class="info-banner">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          6連勤防止のため、前月の最終週シフトを入力してください
+        </div>
+
+        <div class="form-card">
+          <div class="panel-actions mb-16">
+            <button class="btn btn-outline" id="exportSampleCSV">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              サンプルCSV出力
+            </button>
+            <label class="btn btn-outline" for="importStep5CSV">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              CSV読込
+              <input type="file" id="importStep5CSV" accept=".csv" style="display:none">
+            </label>
+          </div>
+
+          <div id="step5TableWrapper">
+            <p class="empty-hint center">STEP1で期間を設定してください。前月の最終1週間分が表示されます。</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== シフト生成結果 ===== -->
+      <section class="tab-panel" id="panel-result">
+        <div class="panel-header">
+          <h2 class="panel-title">シフト生成結果</h2>
+          <div class="panel-actions">
+            <button class="btn btn-outline" id="regenerateShift" style="display:none">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              再生成
+            </button>
+          </div>
+        </div>
+
+        <div id="resultEmpty" class="result-empty">
+          <div class="result-empty-icon">📋</div>
+          <h3>シフトが生成されていません</h3>
+          <p>STEP1〜5を設定後、下部の「シフト表を生成」ボタンをクリックしてください</p>
+        </div>
+
+        <!-- 案A/Bタブ切り替え -->
+        <div id="resultTabsWrapper" style="display:none">
+          <div class="result-tabs">
+            <button class="result-tab-btn active" id="resultTabA" data-plan="planA">
+              📋 案 A
+              <span class="result-tab-score" id="scoreA"></span>
+            </button>
+            <button class="result-tab-btn" id="resultTabB" data-plan="planB">
+              📋 案 B
+              <span class="result-tab-score" id="scoreB"></span>
+            </button>
+          </div>
+          <div id="resultContent"></div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- シフト生成ボタン（固定フッター） -->
+    <footer class="generate-footer">
+      <div class="generate-footer-inner">
+        <div class="generate-info" id="generateInfo">
+          <span id="generateInfoText">STEP1〜5を設定してシフトを生成してください</span>
+        </div>
+        <button class="btn btn-generate" id="generateShift">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          シフト表を生成（案A・案B）
+        </button>
       </div>
-    </section>
+    </footer>
+  </div>
 
-    <!-- ─── 危険なアクションボタン ─── -->
-    <div class="action-row danger-action-row" id="section-danger-actions" style="display:none; margin-top:20px;">
-      <button id="resetBtn" class="btn btn-danger" type="button">
-        🔄 全リセット
-      </button>
-    </div>
-
-  </main>
-</div>
-
-<!-- 日別スケジュールモーダル -->
-<div id="dailyScheduleModal" class="overlay-warning" style="display:none">
-  <div class="overlay-box" style="position:relative; max-width:800px; width:90%; padding:20px 50px;">
-    
-    <button id="prevDayBtn" class="btn btn-secondary btn-sm" type="button" 
-            style="position:absolute; left:10px; top:50%; transform:translateY(-50%); padding:15px 10px; font-size:18px; z-index:10;">◀</button>
-            
-    <button id="nextDayBtn" class="btn btn-secondary btn-sm" type="button" 
-            style="position:absolute; right:10px; top:50%; transform:translateY(-50%); padding:15px 10px; font-size:18px; z-index:10;">▶</button>
-
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-      <h3 id="dailyScheduleTitle" style="margin:0; color:var(--color-primary); font-size:16px; text-align:center; flex:1;"></h3>
-      <button class="btn btn-secondary btn-sm" type="button" onclick="closeDailyScheduleModal()" style="z-index:10;">閉じる</button>
-    </div>
-    <div id="dailyScheduleContent" style="overflow-x:auto;">
-      <!-- ここにタイムラインを描画 -->
+  <!-- モーダル: シフト拡大表示 -->
+  <div class="modal-overlay" id="shiftModal" style="display:none">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3 class="modal-title" id="shiftModalTitle">シフト表</h3>
+        <div class="modal-controls">
+          <button class="btn btn-outline btn-sm" id="zoomOut">−</button>
+          <span id="zoomLevel">100%</span>
+          <button class="btn btn-outline btn-sm" id="zoomIn">＋</button>
+          <button class="modal-close" id="closeShiftModal">✕</button>
+        </div>
+      </div>
+      <div class="modal-body" id="shiftModalBody"></div>
     </div>
   </div>
-</div>
 
-<!-- トースト通知コンテナ -->
-<div id="toast-container"></div>
-
-<!-- ライブラリ未読み込み時の警告オーバーレイ -->
-<div id="xlsxWarning" class="overlay-warning" style="display:none">
-  <div class="overlay-box">
-    <h3>⚠️ SheetJSライブラリが読み込まれていません</h3>
-    <p>Excelファイルを読み込むためにSheetJSが必要です。</p>
-    <ol>
-      <li>
-        <a href="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"
-           target="_blank">このリンクをクリック</a>してJSファイルをダウンロード
-      </li>
-      <li>ダウンロードしたファイルを <code>xlsx.full.min.js</code> という名前で<br>
-          <code>index.html</code> と同じフォルダに保存</li>
-      <li>ページを再読み込み（F5）</li>
-    </ol>
-    <button onclick="document.getElementById('xlsxWarning').style.display='none'"
-            class="btn btn-primary" type="button" style="margin-top:12px;">閉じる</button>
+  <!-- 日別タイムラインモーダル -->
+  <div class="modal-overlay" id="dailyModal" style="display:none">
+    <div class="modal-container modal-container-daily">
+      <!-- 左ナビ（モーダル左中央固定） -->
+      <button class="daily-nav-side daily-nav-prev" id="dailyPrevBtn" title="前日（←キー）">&#9664;</button>
+      <div class="modal-header">
+        <h3 class="modal-title" id="dailyModalTitle">日別スケジュール</h3>
+        <button class="modal-close" id="closeDailyModal">✕</button>
+      </div>
+      <div class="modal-body" id="dailyModalBody"></div>
+      <!-- 右ナビ（モーダル右中央固定） -->
+      <button class="daily-nav-side daily-nav-next" id="dailyNextBtn" title="翌日（→キー）">&#9654;</button>
+    </div>
   </div>
-</div>
 
-<!-- モバイル用ボトムナビゲーション -->
-<nav class="mobile-bottom-nav" id="mobileBottomNav">
-  <a class="mob-nav-item active" data-target="section-settings" href="#section-settings">
-    <span class="mob-nav-icon">⚙️</span>
-    <span class="mob-nav-label">STEP1</span>
-  </a>
-  <a class="mob-nav-item" data-target="section-staff-management" href="#section-staff-management">
-    <span class="mob-nav-icon">👥</span>
-    <span class="mob-nav-label">STEP2</span>
-  </a>
-  <a class="mob-nav-item" data-target="section-upload" href="#section-upload">
-    <span class="mob-nav-icon">📁</span>
-    <span class="mob-nav-label">STEP3</span>
-  </a>
-  <a class="mob-nav-item" data-target="section-staff" href="#section-staff" id="mobNavStep4">
-    <span class="mob-nav-icon">📋</span>
-    <span class="mob-nav-label">STEP4</span>
-  </a>
-  <a class="mob-nav-item" data-target="section-individual-settings" href="#section-individual-settings" id="mobNavStep5">
-    <span class="mob-nav-icon">⭐</span>
-    <span class="mob-nav-label">STEP5</span>
-  </a>
-  <a class="mob-nav-item" data-target="section-result" href="#section-result" id="mobNavResult">
-    <span class="mob-nav-icon">📊</span>
-    <span class="mob-nav-label">結果</span>
-  </a>
-</nav>
+  <!-- トースト通知 -->
+  <div class="toast-container" id="toastContainer"></div>
 
-<script src="script.js"></script>
+  <!-- 確認ダイアログ -->
+  <div class="dialog-overlay" id="confirmDialog" style="display:none">
+    <div class="dialog-box">
+      <h3 class="dialog-title" id="dialogTitle">確認</h3>
+      <p class="dialog-message" id="dialogMessage"></p>
+      <div class="dialog-actions">
+        <button class="btn btn-outline" id="dialogCancel">キャンセル</button>
+        <button class="btn btn-danger" id="dialogConfirm">削除</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="constants.js"></script>
+  <script src="state.js"></script>
+  <script src="storage.js"></script>
+  <script src="csv.js"></script>
+  <script src="validator.js"></script>
+  <script src="generator.js"></script>
+  <script src="modal.js"></script>
+  <script src="ui.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
