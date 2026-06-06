@@ -1014,7 +1014,7 @@ const Generator = window.Generator = (() => {
 
     // Phase 1: 間隔制約に基づく必須休日の配置
     const mandatoryRestPositions = _findMandatoryRestPositions(
-      pattern, dates, freeDates, initialStreak, MAX_GAP, restDates
+      pattern, dates, freeDates, initialStreak, maxGap, restDates
     );
 
     for (const date of mandatoryRestPositions) {
@@ -1047,7 +1047,7 @@ const Generator = window.Generator = (() => {
     }
 
     // Phase 3: 間隔制約の最終チェック・修正
-    _fixGapViolations(pattern, dates, freeDates, initialStreak, MAX_GAP, restDates);
+    _fixGapViolations(pattern, dates, freeDates, initialStreak, maxGap, restDates);
   };
 
   const _findMandatoryRestPositions = (pattern, dates, freeDates, initialStreak, maxGap, restDates) => {
