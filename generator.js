@@ -15,34 +15,22 @@
  *  STEP 3: 休日をランダムに振り分け
  *    各スタッフの休日日数を算出（minRestDays と月所定逆算の大きい方）。
  *    ロック済み休日を差し引いた残りの休日を、ランダムに振り分ける。
- *    制約: 休日間隔はスタッフ別の最大連勤日数以内。
+ *    制約: 休日と休日の間隔は最大5日以内。
  *    例外設定でロックされた出勤日は「出勤日」として間隔計算に含める。
  *
- *  STEP 3.5: 連休・連勤制限
- *    週目安出勤日数に基づき連休と連勤の最大日数を制限する。
- *
- *    【連休制限】
+ *  STEP 3.5: 連休制限
+ *    週目安出勤日数に基づき連休の最大日数を制限する。
  *    - 週目安4日以下 → 最大3連休
  *    - 週目安4〜5日 → 最大3連休
  *    - 週目安5日以上 → 最大2連休
- *
- *    【連勤制限（ハード＝必ず収める）】
- *    - 週目安4日未満（3日以下、3〜4日含む） → 最大3連勤
- *    - 週目安4日以上5日未満（4日、4〜5日含む） → 最大4連勤
- *    - 週目安5日以上 → 最大5連勤
- *
- *    【連勤制限（理想＝望ましい形）】
- *    - 上記ハード制限 - 1日 が理想値
- *      （3日以下→2連勤、4日台→3連勤、5日以上→4連勤）
- *
- *    まず理想値での収束を試み、無理ならハード制限で収束させる。
- *    最大5000回まで試行して収束させる。
+ *    超過する連休を検出したら、いずれかの休日を出勤に変え、
+ *    別の出勤日を休日に変えて日数を維持する。
  *
  *  STEP 4: 出勤人数条件の調整
  *    STEP1で設定した全体出勤人数・社員出勤人数・早番人数・遅番人数を
  *    日付ごとにチェック。条件を満たさない場合は対象スタッフをランダムに
  *    選んで出勤/休日を変更。休日→出勤の場合は別の日をスワップして
- *    休日日数を維持。スタッフ別の連勤制限を維持。希望休は対象外。
+ *    休日日数を維持。休日間隔5日以内制約を維持。希望休は対象外。
  *
  *  ※ 出勤時間の計算は試験段階のため省略。
  * ─────────────────────────────────────────────────────────────
@@ -99,15 +87,15 @@ const Generator = window.Generator = (() => {
     const adjustLog = _adjustStaffingLevels(cells, staff, dates, step1, step4, step5, prevDates);
 
     // ═══════════════════════════════════════════════════════════
-    //  Phase 3: 出勤人数調整後の連休・連勤制限再チェック
+    //  Phase 3: 出勤人数調整後の連休制限再チェック
     // ═══════════════════════════════════════════════════════════
-    let consecutiveFixes = 0;
+    let consecutiveRestFixes = 0;
     for (const s of staff) {
-      const fixed = _enforceConsecutiveConstraints(s, dates, cells[s.id], step5, prevDates);
-      consecutiveFixes += fixed;
+      const fixed = _enforceConsecutiveRestLimit(s, dates, cells[s.id], step5, prevDates);
+      consecutiveRestFixes += fixed;
     }
-    if (consecutiveFixes > 0) {
-      adjustLog.push(`[調整] 連休・連勤制限の再調整: ${consecutiveFixes}件`);
+    if (consecutiveRestFixes > 0) {
+      adjustLog.push(`[調整] 連休制限の再調整: ${consecutiveRestFixes}件`);
     }
 
     const plan      = { cells, violations: [] };
@@ -189,8 +177,8 @@ const Generator = window.Generator = (() => {
     // ④ 休日をランダムに振り分け
     _assignRestDays(s, dates, pattern, step5, prevDates);
 
-    // ⑤ 連休・連勤制限の適用
-    _enforceConsecutiveConstraints(s, dates, pattern, step5, prevDates);
+    // ⑤ 連休制限の適用
+    _enforceConsecutiveRestLimit(s, dates, pattern, step5, prevDates);
 
     return pattern;
   };
@@ -214,7 +202,7 @@ const Generator = window.Generator = (() => {
    *  - 希望休（wishOff）は対象外（変更しない）
    *  - 例外設定でロックされたセルは変更しない
    *  - 休日→出勤に変更する場合は、別の日を出勤→休日にスワップして日数維持
-   *  - スタッフ別の連勤制限を維持
+   *  - 休日間隔は常に5日以内を維持
    */
   const _adjustStaffingLevels = (cells, staff, dates, step1, step4, step5, prevDates) => {
     const log = [];
@@ -462,7 +450,7 @@ const Generator = window.Generator = (() => {
    *
    * 条件:
    *  - ロックされていない出勤日
-   *  - その日を休日にしてもスタッフ別連勤制約を満たす
+   *  - その日を休日にしても休日間隔5日以内制約を満たす
    *  - 指定日（date）以外
    */
   const _findSwapDateWorkToOff = (cells, s, dates, excludeDate, step5, prevDates) => {
@@ -492,7 +480,7 @@ const Generator = window.Generator = (() => {
    *
    * 条件:
    *  - ロックされていない休日（OFF）、希望休は除外
-   *  - その日を出勤にしてもスタッフ別連勤制約を満たす
+   *  - その日を出勤にしても休日間隔5日以内制約を満たす
    *  - 指定日（date）以外
    */
   const _findSwapDateOffToWork = (cells, s, dates, excludeDate, step5, prevDates) => {
@@ -519,7 +507,7 @@ const Generator = window.Generator = (() => {
 
   /**
    * dayToOff を休日に、dayToWork を出勤に変更した場合、
-   * スタッフ別の連勤制限が保たれるかシミュレーションする
+   * 休日間隔5日以内制約が保たれるかシミュレーションする
    */
   const _canSwapToOff = (pattern, dates, dayToOff, dayToWork, step5, staffId, prevDates) => {
     return _checkGapAfterSwap(pattern, dates, dayToOff, dayToWork, step5, staffId, prevDates);
@@ -531,13 +519,10 @@ const Generator = window.Generator = (() => {
 
   /**
    * dayToOff を休日に、dayToWork を出勤に変更した場合の
-   * 連続出勤をシミュレーションし、スタッフ別の連勤制限に収まるかチェック
+   * 連続出勤をシミュレーションし、5日以内に収まるかチェック
    */
   const _checkGapAfterSwap = (pattern, dates, dayToOff, dayToWork, step5, staffId, prevDates) => {
-    // スタッフ別の連勤上限（ハード制限）を取得
-    const staff = State.getStaffById(staffId);
-    const weeklyDays = staff ? _getWeeklyTargetDays(staff) : 5;
-    const maxGap = _getMaxConsecutiveWork(weeklyDays);
+    const MAX_GAP = 5;
 
     // 前月末からの連続出勤ストリーク
     let streak = _getInitialStreak(step5, staffId, prevDates);
@@ -556,7 +541,7 @@ const Generator = window.Generator = (() => {
 
       if (isWork) {
         streak++;
-        if (streak > maxGap) return false;  // スタッフ別上限超過 → NG
+        if (streak > MAX_GAP) return false;  // 5日超過 → NG
       } else {
         streak = 0;
       }
@@ -610,8 +595,8 @@ const Generator = window.Generator = (() => {
     state === SHIFT_STATE.WORK || state === SHIFT_STATE.PAID;
 
   // ═══════════════════════════════════════════════════════════
-  //  連休・連勤制限ロジック
-  //  週目安出勤日数に基づき連続休日/連続出勤の最大日数を制限する
+  //  連休制限ロジック
+  //  週目安出勤日数に基づき連続休日の最大日数を制限する
   // ═══════════════════════════════════════════════════════════
 
   /**
@@ -633,147 +618,74 @@ const Generator = window.Generator = (() => {
    */
   const _getMaxConsecutiveRest = (weeklyDays) => {
     if (weeklyDays >= 5) return 2;
-    return 3;
+    return 3;  // 4日以下 or 4〜5日
   };
 
   /**
-   * 週目安出勤日数から連勤のハード制限（必ず収める最大連勤日数）を決定する
-   * - 4日未満（3日以下、3〜4日含む） → 最大3連勤
-   * - 4日以上5日未満（4日、4〜5日含む） → 最大4連勤
-   * - 5日以上 → 最大5連勤
-   */
-  const _getMaxConsecutiveWork = (weeklyDays) => {
-    if (weeklyDays < 4) return 3;
-    if (weeklyDays < 5) return 4;
-    return 5;
-  };
-
-  /**
-   * 週目安出勤日数から連勤の理想値（望ましい最大連勤日数）を決定する
-   * ハード制限 - 1 が理想値
-   * - 4日未満 → 理想2連勤
-   * - 4日以上5日未満 → 理想3連勤
-   * - 5日以上 → 理想4連勤
-   */
-  const _getIdealMaxConsecutiveWork = (weeklyDays) => {
-    return _getMaxConsecutiveWork(weeklyDays) - 1;
-  };
-
-  /**
-   * 連休・連勤制限を統合的に強制する。
-   * 最大5000回まで試行して収束させる。
-   *
-   * 処理順序:
-   * 1. 連休のハード違反を修正（連休超過 → 休日を出勤に＋別日を休日に）
-   * 2. 連勤のハード違反を修正（連勤超過 → 出勤を休日に＋別日を出勤に）
-   * 3. 連勤の理想値改善を試みる（理想超過 → 可能な範囲でスワップ）
+   * 連休制限を強制する。
+   * 連休が最大日数を超えている場合、超過分の休日を出勤に変更し、
+   * 別の出勤日を休日に変更して日数を維持する。
    *
    * @returns {number} 修正したスワップ回数
    */
-  const _enforceConsecutiveConstraints = (s, dates, pattern, step5, prevDates) => {
-    const weeklyDays      = _getWeeklyTargetDays(s);
-    const maxConsecRest   = _getMaxConsecutiveRest(weeklyDays);
-    const hardMaxWork     = _getMaxConsecutiveWork(weeklyDays);
-    const idealMaxWork    = _getIdealMaxConsecutiveWork(weeklyDays);
+  const _enforceConsecutiveRestLimit = (s, dates, pattern, step5, prevDates) => {
+    const weeklyDays = _getWeeklyTargetDays(s);
+    const maxConsecRest = _getMaxConsecutiveRest(weeklyDays);
     let totalFixes = 0;
 
-    for (let iter = 0; iter < 5000; iter++) {
+    for (let iter = 0; iter < 20; iter++) {
+      // 連続休日のランを検出
+      const runs = _findConsecutiveRestRuns(pattern, dates);
+      const violations = runs.filter(r => r.length > maxConsecRest);
+
+      if (violations.length === 0) break;
+
       let fixedThisIter = false;
 
-      // ─── 1. 連休ハード違反の修正 ─────────────────────
-      const restRuns = _findConsecutiveRestRuns(pattern, dates);
-      const restViolations = restRuns.filter(r => r.length > maxConsecRest);
-
-      for (const run of restViolations) {
+      for (const run of violations) {
+        // ランの中からロックされていない休日を見つけて出勤に変更
         const excess = run.length - maxConsecRest;
         let fixed = 0;
-        const sortedByMiddle = _sortByMiddle(run, dates);
+
+        // ランの中間部分から優先的に出勤に変更（端を残す）
+        const sortedByMiddle = [...run].sort((a, b) => {
+          const ai = dates.indexOf(a), bi = dates.indexOf(b);
+          const mid = (dates.indexOf(run[0]) + dates.indexOf(run[run.length - 1])) / 2;
+          return Math.abs(ai - mid) - Math.abs(bi - mid);
+        });
 
         for (const date of sortedByMiddle) {
           if (fixed >= excess) break;
           const cell = pattern[date];
-          if (cell.locked || cell.state !== SHIFT_STATE.OFF) continue;
+          if (cell.locked) continue;
+          if (cell.state !== SHIFT_STATE.OFF) continue;
 
-          const swapDate = _findSwapForRestFix(pattern, dates, date, s, step5, prevDates, maxConsecRest, hardMaxWork);
+          // この休日を出勤に変更し、別の出勤日を休日にスワップ
+          const swapDate = _findSwapDateForConsecFix(pattern, dates, date, s, step5, prevDates, maxConsecRest);
           if (!swapDate) continue;
 
           _setWork(cell, s);
           _setOff(pattern[swapDate]);
-          fixed++; totalFixes++; fixedThisIter = true;
+          fixed++;
+          totalFixes++;
+          fixedThisIter = true;
         }
       }
 
-      // ─── 2. 連勤ハード違反の修正 ─────────────────────
-      const workRuns = _findConsecutiveWorkRuns(pattern, dates, step5, s.id, prevDates);
-      const workHardViolations = workRuns.filter(r => r.length > hardMaxWork);
-
-      for (const run of workHardViolations) {
-        const excess = run.length - hardMaxWork;
-        let fixed = 0;
-        const sortedByMiddle = _sortByMiddle(run, dates);
-
-        for (const date of sortedByMiddle) {
-          if (fixed >= excess) break;
-          const cell = pattern[date];
-          if (cell.locked || cell.state !== SHIFT_STATE.WORK) continue;
-
-          const swapDate = _findSwapForWorkFix(pattern, dates, date, s, step5, prevDates, maxConsecRest, hardMaxWork);
-          if (!swapDate) continue;
-
-          _setOff(cell);
-          _setWork(pattern[swapDate], s);
-          fixed++; totalFixes++; fixedThisIter = true;
-        }
-      }
-
-      // ─── 3. 連勤の理想値改善 ────────────────────────
-      if (!fixedThisIter) {
-        // ハード違反がない場合のみ理想値改善を試みる
-        const workRunsForIdeal = _findConsecutiveWorkRuns(pattern, dates, step5, s.id, prevDates);
-        const idealViolations = workRunsForIdeal.filter(r => r.length > idealMaxWork && r.length <= hardMaxWork);
-
-        for (const run of idealViolations) {
-          const excess = run.length - idealMaxWork;
-          let fixed = 0;
-          const sortedByMiddle = _sortByMiddle(run, dates);
-
-          for (const date of sortedByMiddle) {
-            if (fixed >= excess) break;
-            const cell = pattern[date];
-            if (cell.locked || cell.state !== SHIFT_STATE.WORK) continue;
-
-            // 理想値改善のスワップ先を探す（より厳密なチェック）
-            const swapDate = _findSwapForIdealFix(pattern, dates, date, s, step5, prevDates, maxConsecRest, idealMaxWork);
-            if (!swapDate) continue;
-
-            _setOff(cell);
-            _setWork(pattern[swapDate], s);
-            fixed++; totalFixes++; fixedThisIter = true;
-          }
-        }
-      }
-
-      if (!fixedThisIter) break;  // 全制約を満たした or これ以上改善不可
+      if (!fixedThisIter) break;  // これ以上修正できない
     }
 
     return totalFixes;
   };
 
-  /** ランの中間部分から優先してソートする共通ヘルパー */
-  const _sortByMiddle = (run, dates) => {
-    return [...run].sort((a, b) => {
-      const ai = dates.indexOf(a), bi = dates.indexOf(b);
-      const mid = (dates.indexOf(run[0]) + dates.indexOf(run[run.length - 1])) / 2;
-      return Math.abs(ai - mid) - Math.abs(bi - mid);
-    });
-  };
-
   /**
    * 連続休日のラン（連続して休日が続く区間）を検出する
+   * @returns {string[][]} 連続休日の日付配列のリスト
    */
   const _findConsecutiveRestRuns = (pattern, dates) => {
     const runs = [];
     let currentRun = [];
+
     for (const date of dates) {
       const cell = pattern[date];
       const isRest = cell && (
@@ -782,65 +694,30 @@ const Generator = window.Generator = (() => {
         cell.state === SHIFT_STATE.PREFER_OFF ||
         cell.state === SHIFT_STATE.FORCED_OFF
       );
+
       if (isRest) {
         currentRun.push(date);
       } else {
-        if (currentRun.length > 0) { runs.push([...currentRun]); currentRun = []; }
+        if (currentRun.length > 0) {
+          runs.push([...currentRun]);
+          currentRun = [];
+        }
       }
     }
-    if (currentRun.length > 0) runs.push([...currentRun]);
+    if (currentRun.length > 0) {
+      runs.push([...currentRun]);
+    }
+
     return runs;
   };
 
   /**
-   * 連続出勤のラン（連続して出勤が続く区間）を検出する
-   * 前月末のストリークも考慮する
+   * 連休制限修正のためのスワップ先を探す。
+   * 出勤日のうち、ロックされておらず、その日を休日にしても：
+   *   - 5連勤制約を満たす
+   *   - 新たな連休超過を生まない
    */
-  const _findConsecutiveWorkRuns = (pattern, dates, step5, staffId, prevDates) => {
-    const runs = [];
-    let currentRun = [];
-
-    // 前月末ストリークを初期ランに含める
-    const initialStreak = _getInitialStreak(step5, staffId, prevDates);
-    // 前月ストリーク分のダミー日付は追加しないが、長さとして記録
-    let prefixStreak = initialStreak;
-
-    for (const date of dates) {
-      const cell = pattern[date];
-      const isWork = _isWorkState(cell?.state);
-
-      if (isWork) {
-        currentRun.push(date);
-      } else {
-        if (currentRun.length > 0 || prefixStreak > 0) {
-          // 前月ストリーク + 今月の連勤で1つのランとして扱う
-          const totalLength = prefixStreak + currentRun.length;
-          if (totalLength > 0) {
-            // 実際に操作可能なのは今月分のみ
-            runs.push({ dates: [...currentRun], totalLength });
-          }
-          currentRun = [];
-        }
-        prefixStreak = 0;
-      }
-    }
-    if (currentRun.length > 0 || prefixStreak > 0) {
-      runs.push({ dates: [...currentRun], totalLength: prefixStreak + currentRun.length });
-    }
-
-    // 通常の配列形式に変換（lengthはtotalLengthを使う）
-    return runs.map(r => {
-      const arr = r.dates;
-      arr.totalLength = r.totalLength;
-      return arr;
-    });
-  };
-
-  /**
-   * 連休修正のためのスワップ先を探す（休日→出勤にする時の対）
-   * 出勤日の中から休日にしても連勤制限・連休制限を壊さない日を見つける
-   */
-  const _findSwapForRestFix = (pattern, dates, restToWork, s, step5, prevDates, maxConsecRest, maxConsecWork) => {
+  const _findSwapDateForConsecFix = (pattern, dates, restToWork, s, step5, prevDates, maxConsecRest) => {
     const candidates = _shuffle(
       dates.filter(d => {
         if (d === restToWork) return false;
@@ -848,57 +725,18 @@ const Generator = window.Generator = (() => {
         return cell && cell.state === SHIFT_STATE.WORK && !cell.locked;
       })
     );
+
     for (const d of candidates) {
+      // シミュレーション: restToWork を出勤、d を休日にした場合
+      // 1. 5連勤制約チェック
       if (!_checkGapAfterSwap(pattern, dates, d, restToWork, step5, s.id, prevDates)) continue;
+
+      // 2. 連休制限チェック: d を休日にした場合に新たな連休超過が発生しないか
       if (_wouldCreateExcessiveRest(pattern, dates, d, restToWork, maxConsecRest)) continue;
-      if (_wouldCreateExcessiveWork(pattern, dates, restToWork, d, step5, s.id, prevDates, maxConsecWork)) continue;
-      return d;
-    }
-    return null;
-  };
 
-  /**
-   * 連勤修正のためのスワップ先を探す（出勤→休日にする時の対）
-   * 休日の中から出勤にしても連勤制限・連休制限を壊さない日を見つける
-   */
-  const _findSwapForWorkFix = (pattern, dates, workToOff, s, step5, prevDates, maxConsecRest, maxConsecWork) => {
-    const candidates = _shuffle(
-      dates.filter(d => {
-        if (d === workToOff) return false;
-        const cell = pattern[d];
-        return cell && cell.state === SHIFT_STATE.OFF && !cell.locked;
-      })
-    );
-    for (const d of candidates) {
-      if (!_checkGapAfterSwap(pattern, dates, workToOff, d, step5, s.id, prevDates)) continue;
-      if (_wouldCreateExcessiveRest(pattern, dates, workToOff, d, maxConsecRest)) continue;
-      if (_wouldCreateExcessiveWork(pattern, dates, d, workToOff, step5, s.id, prevDates, maxConsecWork)) continue;
       return d;
     }
-    return null;
-  };
 
-  /**
-   * 理想値改善のためのスワップ先を探す（出勤→休日にする時の対）
-   * idealMaxWork で連勤チェック（より厳しい基準）
-   */
-  const _findSwapForIdealFix = (pattern, dates, workToOff, s, step5, prevDates, maxConsecRest, idealMaxWork) => {
-    const candidates = _shuffle(
-      dates.filter(d => {
-        if (d === workToOff) return false;
-        const cell = pattern[d];
-        return cell && cell.state === SHIFT_STATE.OFF && !cell.locked;
-      })
-    );
-    for (const d of candidates) {
-      // 連勤チェック: idealMaxWork 基準で新たな超過がないか
-      if (_wouldCreateExcessiveWork(pattern, dates, d, workToOff, step5, s.id, prevDates, idealMaxWork)) continue;
-      // 連休チェック
-      if (_wouldCreateExcessiveRest(pattern, dates, workToOff, d, maxConsecRest)) continue;
-      // 5連勤ハード制約チェック
-      if (!_checkGapAfterSwap(pattern, dates, workToOff, d, step5, s.id, prevDates)) continue;
-      return d;
-    }
     return null;
   };
 
@@ -908,11 +746,14 @@ const Generator = window.Generator = (() => {
    */
   const _wouldCreateExcessiveRest = (pattern, dates, dayToOff, dayToWork, maxConsecRest) => {
     let consecRest = 0;
+
     for (const date of dates) {
       let isRest;
-      if (date === dayToOff)       isRest = true;
-      else if (date === dayToWork) isRest = false;
-      else {
+      if (date === dayToOff) {
+        isRest = true;  // 休日にする
+      } else if (date === dayToWork) {
+        isRest = false;  // 出勤にする
+      } else {
         const cell = pattern[date];
         isRest = cell && (
           cell.state === SHIFT_STATE.OFF ||
@@ -921,6 +762,7 @@ const Generator = window.Generator = (() => {
           cell.state === SHIFT_STATE.FORCED_OFF
         );
       }
+
       if (isRest) {
         consecRest++;
         if (consecRest > maxConsecRest) return true;
@@ -928,28 +770,7 @@ const Generator = window.Generator = (() => {
         consecRest = 0;
       }
     }
-    return false;
-  };
 
-  /**
-   * dayToWork を出勤、dayToOff を休日に変更した場合、
-   * maxConsecWork を超える連勤が新たに発生するかチェック
-   */
-  const _wouldCreateExcessiveWork = (pattern, dates, dayToWork, dayToOff, step5, staffId, prevDates, maxConsecWork) => {
-    let streak = _getInitialStreak(step5, staffId, prevDates);
-    for (const date of dates) {
-      let isWork;
-      if (date === dayToWork)     isWork = true;
-      else if (date === dayToOff) isWork = false;
-      else                        isWork = _isWorkState(pattern[date]?.state);
-
-      if (isWork) {
-        streak++;
-        if (streak > maxConsecWork) return true;
-      } else {
-        streak = 0;
-      }
-    }
     return false;
   };
 
@@ -987,19 +808,15 @@ const Generator = window.Generator = (() => {
     // 前月末からの連続出勤ストリーク
     const initialStreak = _getInitialStreak(step5, s.id, prevDates);
 
-    // スタッフ別の連勤上限を取得
-    const weeklyDays = _getWeeklyTargetDays(s);
-    const staffMaxGap = _getMaxConsecutiveWork(weeklyDays);
-
     // 間隔制約を満たしつつランダムに休日を配置
-    _distributeRestDays(pattern, dates, freeDates, needRest, initialStreak, staffMaxGap);
+    _distributeRestDays(pattern, dates, freeDates, needRest, initialStreak);
   };
 
   /**
    * 休日をランダムに振り分ける
-   * @param {number} maxGap - スタッフ別の連勤上限
    */
-  const _distributeRestDays = (pattern, dates, freeDates, needRest, initialStreak, maxGap) => {
+  const _distributeRestDays = (pattern, dates, freeDates, needRest, initialStreak) => {
+    const MAX_GAP = 5;
 
     let restPlaced = 0;
     const restDates = new Set();
