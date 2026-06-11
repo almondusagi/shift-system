@@ -705,10 +705,11 @@ const Generator = window.Generator = (() => {
 
       // ─── 2. 連勤ハード違反の修正 ─────────────────────
       const workRuns = _findConsecutiveWorkRuns(pattern, dates, step5, s.id, prevDates);
-      const workHardViolations = workRuns.filter(r => r.length > hardMaxWork);
+      const workHardViolations = workRuns.filter(r => (r.totalLength || r.length) > hardMaxWork);
 
       for (const run of workHardViolations) {
-        const excess = run.length - hardMaxWork;
+        const runTotal = run.totalLength || run.length;
+        const excess = runTotal - hardMaxWork;
         let fixed = 0;
         const sortedByMiddle = _sortByMiddle(run, dates);
 
@@ -730,10 +731,14 @@ const Generator = window.Generator = (() => {
       if (!fixedThisIter) {
         // ハード違反がない場合のみ理想値改善を試みる
         const workRunsForIdeal = _findConsecutiveWorkRuns(pattern, dates, step5, s.id, prevDates);
-        const idealViolations = workRunsForIdeal.filter(r => r.length > idealMaxWork && r.length <= hardMaxWork);
+        const idealViolations = workRunsForIdeal.filter(r => {
+          const t = r.totalLength || r.length;
+          return t > idealMaxWork && t <= hardMaxWork;
+        });
 
         for (const run of idealViolations) {
-          const excess = run.length - idealMaxWork;
+          const runTotal = run.totalLength || run.length;
+          const excess = runTotal - idealMaxWork;
           let fixed = 0;
           const sortedByMiddle = _sortByMiddle(run, dates);
 
