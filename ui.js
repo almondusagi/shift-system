@@ -80,6 +80,8 @@ const UI = window.UI = (() => {
     _setVal('earlyCountMax', s1.earlyCountMax ?? '');
     _setVal('lateCountMin', s1.lateCountMin || 0);
     _setVal('lateCountMax', s1.lateCountMax ?? '');
+    if ($('minCommunity'))  $('minCommunity').value  = s1.minCommunity  ?? '';
+    if ($('maxCommunity'))  $('maxCommunity').value  = s1.maxCommunity  ?? '';
     updatePeriodPreview();
   };
 
@@ -123,9 +125,9 @@ const UI = window.UI = (() => {
       const shiftHints = [];
       if (canEarly) shiftHints.push('<span style="color:var(--color-warning);font-size:10px">早番可</span>');
       if (canLate)  shiftHints.push('<span style="color:var(--color-info,#3b82f6);font-size:10px">遅番可</span>');
-      const workTimeStr = s.workStartTime
-        ? `${s.workStartAmPm==='am'?'午前':'午後'} ${s.workStartTime} 〜 ${s.workEndAmPm==='am'?'午前':'午後'} ${s.workEndTime}`
-        : '<span style="color:var(--color-text-muted)">STEP1に従う</span>';
+      const startStr = s.workStartTime ? `${s.workStartAmPm==='am'?'午前':'午後'} ${s.workStartTime}` : '<span style="color:var(--color-text-muted)">STEP1に従う</span>';
+      const endStr = s.workEndTime ? `${s.workEndAmPm==='am'?'午前':'午後'} ${s.workEndTime}` : '<span style="color:var(--color-text-muted)">STEP1に従う</span>';
+      const workTimeStr = `${startStr} 〜 ${endStr}`;
       return `
       <tr data-id="${esc(s.id)}">
         <td><strong>${esc(s.name)}</strong></td>
@@ -470,8 +472,8 @@ const UI = window.UI = (() => {
       const dayMap = State.getStep5For(s.id);
       const cells = dates.map(d => {
         const cell = dayMap[d]||{};
-        const val = cell.state==='work' ? (cell.hours?`${cell.hours}h`:'出勤') : '';
-        return `<td><input type="text" class="step5-input" data-sid="${esc(s.id)}" data-date="${esc(d)}" value="${esc(val)}" placeholder="—"></td>`;
+        const val = cell.state==='work' ? (cell.hours || '') : '';
+        return `<td><input type="text" class="step5-input" data-sid="${esc(s.id)}" data-date="${esc(d)}" value="${esc(val)}" placeholder="入力例: 8"></td>`;
       }).join('');
       return `<tr><td class="staff-name-cell"><span class="tag ${s.category===CONSTANTS.CATEGORY.EMPLOYEE?'tag-employee':'tag-community'}" style="margin-right:4px">${s.category===CONSTANTS.CATEGORY.EMPLOYEE?'社':'コ'}</span>${esc(s.name)}</td>${cells}</tr>`;
     }).join('');
@@ -486,8 +488,8 @@ const UI = window.UI = (() => {
         let state='off', hours=0;
         if (raw && raw!=='休'&&raw!=='off'&&raw!=='—') {
           state='work';
-          const m=raw.match(/^(\d+\.?\d*)h?$/);
-          hours = m ? parseFloat(m[1]) : (State.getEffectiveStaff(sid)?.dailyHours||CONSTANTS.DEFAULT_DAILY_HOURS);
+          const num = parseFloat(raw);
+          hours = isNaN(num) ? (State.getEffectiveStaff(sid)?.dailyHours||CONSTANTS.DEFAULT_DAILY_HOURS) : num;
         }
         State.setStep5ForStaff(sid, { ...State.getStep5For(sid), [date]:{state,hours} });
         Storage.autoSave(showSaveStatus);
@@ -503,38 +505,34 @@ const UI = window.UI = (() => {
     $('regenerateShift').style.display   = result ? 'inline-flex' : 'none';
     if (!result) return;
 
-    const planA = result.planA, planB = result.planB;
+    const planA = result.planA;
     const hardA = planA?.violations?.filter(v=>v.type==='HARD').length || 0;
-    const hardB = planB?.violations?.filter(v=>v.type==='HARD').length || 0;
     const softA = planA?.violations?.filter(v=>v.type==='SOFT').length || 0;
-    const softB = planB?.violations?.filter(v=>v.type==='SOFT').length || 0;
+
+    // タイトル: ○年○月度勤務計画表（期間終了日の月を採用）
+    const dates = State.getPeriodDates();
+    const lastDate = dates[dates.length - 1];
+    const endDt = new Date(lastDate + 'T00:00:00');
+    const endYear = endDt.getFullYear();
+    const endMonth = endDt.getMonth() + 1;
+    const titleEl = $('resultPlanTitle');
+    if (titleEl) titleEl.textContent = `${endYear}年${endMonth}月度勤務計画表`;
 
     // スコア表示
-    const scoreAEl = $('scoreA'), scoreBEl = $('scoreB');
+    const scoreAEl = $('scoreA');
     if (scoreAEl) scoreAEl.textContent = hardA > 0 ? `⚠️ 違反${hardA}件` : '✅ 充足';
-    if (scoreBEl) scoreBEl.textContent = hardB > 0 ? `⚠️ 違反${hardB}件` : '✅ 充足';
-
-    // アクティブタブ
-    const activePlan = State.getUI().resultActiveTab || 'planA';
-    $('resultTabA')?.classList.toggle('active', activePlan === 'planA');
-    $('resultTabB')?.classList.toggle('active', activePlan === 'planB');
-
-    const plan  = activePlan === 'planB' ? planB : planA;
-    const label = activePlan === 'planB' ? '案 B' : '案 A';
-    const hard  = activePlan === 'planB' ? hardB  : hardA;
-    const soft  = activePlan === 'planB' ? softB  : softA;
 
     const container = $('resultContent');
     container.innerHTML = '';
-    if (plan) container.appendChild(_buildShiftPanel(activePlan, label, plan, hard, soft));
+    if (planA) container.appendChild(_buildShiftPanel('planA', `${endYear}年${endMonth}月度勤務計画表`, planA, hardA, softA));
 
     // 生成ログ
     if (result.log?.length) {
-      const logEl = document.createElement('div');
-      logEl.style.cssText = 'padding:0 0 16px';
-      logEl.innerHTML = `<details style="cursor:pointer"><summary style="font-size:12px;color:var(--color-text-muted);padding:8px 0;user-select:none">▶ 生成ログ（${result.log.length}件）</summary>
-        <div class="generate-log">${result.log.map(l=>`<div class="generate-log-item${l.includes('違反')?' warn':''}">&gt; ${esc(l)}</div>`).join('')}</div></details>`;
-      container.appendChild(logEl);
+      const logDiv = document.createElement('div');
+      logDiv.className = 'result-log';
+      logDiv.innerHTML = '<h4 class="result-log-title">生成ログ</h4>' +
+        '<div class="result-log-content">' + result.log.map(l => `<p>${esc(l)}</p>`).join('') + '</div>';
+      container.appendChild(logDiv);
     }
   };
 
@@ -614,18 +612,26 @@ const UI = window.UI = (() => {
       }
     });
 
+    // ヘッダー行1: スタッフ名（colspan=2）
     const staffHeaderCells = staff.map(s => {
       const catTag = s.category===CONSTANTS.CATEGORY.EMPLOYEE
         ? '<span class="tag tag-employee" style="font-size:9px;margin-bottom:2px">社</span>'
         : '<span class="tag tag-community" style="font-size:9px;margin-bottom:2px">コ</span>';
-      return `<th class="shift-staff-header">${catTag}<br>${esc(s.name)}</th>`;
+      return `<th class="shift-staff-header" colspan="2">${catTag}<br>${esc(s.name)}</th>`;
     }).join('');
 
+    // ヘッダー行2: サブヘッダー（時間 / h）
+    const subHeaderStyle = 'position:sticky; top:45px; background:var(--color-surface-2); border-bottom:1px solid var(--color-border); font-size:10px; padding:2px 4px; z-index:2;';
+    const subHeaderCells = staff.map(() =>
+      `<th class="shift-sub-header" style="${subHeaderStyle}">時間</th><th class="shift-sub-header" style="${subHeaderStyle}">h</th>`
+    ).join('');
+
     const headerRow = `<tr>
-      <th class="shift-date-col sticky-col-date" style="cursor:pointer" title="日付クリックでタイムライン表示">日付</th>
+      <th class="shift-date-col sticky-col-date" style="cursor:pointer; position:sticky; top:0; left:0; z-index:4; background:var(--color-surface-2);" title="日付クリックでタイムライン表示" rowspan="2">日付</th>
       ${staffHeaderCells}
-      <th class="shift-date-col">日付</th>
-    </tr>`;
+      <th class="shift-date-col" style="position:sticky; top:0; z-index:2; background:var(--color-surface-2);" rowspan="2">日付</th>
+    </tr>
+    <tr>${subHeaderCells}</tr>`;
 
     const dataRows = dates.map(d => {
       const lbl = _dateLabel(d);
@@ -633,19 +639,10 @@ const UI = window.UI = (() => {
         <span class="shift-date-num">${lbl.short}</span>
         <span class="shift-date-wday">${lbl.weekday}</span>
       </td>`;
-      // 右列も同様にクリック可能
       const dateCellR = `<td class="shift-date-col ${lbl.cls} shift-date-clickable" data-date="${esc(d)}" title="クリックで日別タイムライン表示" style="cursor:pointer">
         <span class="shift-date-num">${lbl.short}</span>
         <span class="shift-date-wday">${lbl.weekday}</span>
       </td>`;
-
-      // この日の出勤人数
-      const workingCount = staff.filter(s => plan.cells[s.id]?.[d]?.state === 'work').length;
-      const step1 = State.getStep1();
-      const minStaff = step1.minStaff || 1;
-      const maxStaff = step1.maxStaff ?? null;
-      const isShort = workingCount < minStaff;
-      const isOver  = maxStaff != null && workingCount > maxStaff;
 
       const staffCells = staff.map(s => {
         const cell = plan.cells[s.id]?.[d];
@@ -657,27 +654,41 @@ const UI = window.UI = (() => {
         const violClass = hasHard ? ' cell-violation-hard' : hasSoft ? ' cell-violation-soft' : '';
         const violTip = viols.length ? ` title="${esc(viols.map(v=>v.message).join(' / '))}"` : '';
 
-        if (!cell || cell.state==='off')      return `<td class="cell-off${violClass} ${lbl.cls}" data-sid="${sid}" data-date="${dd}"${violTip}>休</td>`;
-        if (cell.state==='forcedOff')         return `<td class="cell-forced-off${violClass} ${lbl.cls}" data-sid="${sid}" data-date="${dd}" title="最大人数超過のため強制的に休みにしました">強制休</td>`;
-        if (cell.state==='paid')              return `<td class="cell-paid${violClass} ${lbl.cls}" data-sid="${sid}" data-date="${dd}"${violTip}>有</td>`;
-        if (cell.state==='wishOff')           return `<td class="cell-wish-off${violClass} ${lbl.cls}" data-sid="${sid}" data-date="${dd}"${violTip}>希</td>`;
-        if (cell.state==='preferOff')         return `<td class="cell-prefer-off${violClass} ${lbl.cls}" data-sid="${sid}" data-date="${dd}"${violTip}>青</td>`;
+        if (!cell || cell.state==='off') {
+          return `<td class="cell-off${violClass} ${lbl.cls}" data-sid="${sid}" data-date="${dd}"${violTip}></td><td class="cell-off${violClass} ${lbl.cls}">休</td>`;
+        }
+        if (cell.state==='forcedOff') {
+          return `<td class="cell-forced-off${violClass} ${lbl.cls}" data-sid="${sid}" data-date="${dd}"></td><td class="cell-forced-off${violClass} ${lbl.cls}" title="最大人数超過のため強制休">強制休</td>`;
+        }
+        if (cell.state==='paid') {
+          return `<td class="cell-paid${violClass} ${lbl.cls}" data-sid="${sid}" data-date="${dd}"${violTip}></td><td class="cell-paid${violClass} ${lbl.cls}">有</td>`;
+        }
+        if (cell.state==='wishOff') {
+          return `<td class="cell-wish-off${violClass} ${lbl.cls}" data-sid="${sid}" data-date="${dd}"${violTip}></td><td class="cell-wish-off${violClass} ${lbl.cls}">希</td>`;
+        }
+        if (cell.state==='preferOff') {
+          return `<td class="cell-prefer-off${violClass} ${lbl.cls}" data-sid="${sid}" data-date="${dd}"${violTip}></td><td class="cell-prefer-off${violClass} ${lbl.cls}">青</td>`;
+        }
+
+        // 出勤セル: 2列（就労時間 + 労働時間h）
         const h = cell.hours||0;
-        const timeStr = (cell.workStart&&cell.workEnd) ? `${cell.workStart}〜${cell.workEnd}` : `${h}h`;
+        const timeStr = (cell.workStart && cell.workEnd)
+          ? `${cell.workStart}〜${cell.workEnd}` : '';
+        const hoursStr = `${h}h`;
         const mark = cell.shiftType==='early' ? '<span class="cell-shift-mark early">早</span>' :
                      cell.shiftType==='late'  ? '<span class="cell-shift-mark late">遅</span>' : '';
-        const tip = `${s.name} / ${d} / ${timeStr}`;
-        return `<td class="cell-work${violClass} ${lbl.cls}" data-sid="${sid}" data-date="${dd}" title="${esc(tip)}" contenteditable="true">${mark}<span class="cell-time">${esc(timeStr)}</span></td>`;
+        const tip = `${s.name} / ${d} / ${timeStr || hoursStr}`;
+
+        return `<td class="cell-work${violClass} ${lbl.cls}" data-sid="${sid}" data-date="${dd}" title="${esc(tip)}" style="font-size:10px;white-space:nowrap">${mark}<span class="cell-time">${esc(timeStr)}</span></td><td class="cell-work${violClass} ${lbl.cls}" contenteditable="true" data-sid="${sid}" data-date="${dd}" title="${esc(tip)}">${esc(hoursStr)}</td>`;
       }).join('');
 
-      const rowClass = isShort ? ' row-short-staff' : isOver ? ' row-over-staff' : '';
-      return `<tr class="${rowClass}">${dateCell}${staffCells}${dateCellR}</tr>`;
+      return `<tr>${dateCell}${staffCells}${dateCellR}</tr>`;
     }).join('');
 
-    // 集計行
+    // 集計行（colspan=2でスタッフごとにまとめる）
     const workDaysRow = `<tr class="shift-summary-row">
       <td class="shift-summary-label sticky-col-date">出勤日数</td>
-      ${staff.map(s=>`<td class="shift-summary-cell">${staffTotals[s.id].workDays}日</td>`).join('')}
+      ${staff.map(s=>`<td class="shift-summary-cell" colspan="2">${staffTotals[s.id].workDays}日</td>`).join('')}
       <td class="shift-summary-label">出勤日数</td>
     </tr>`;
 
@@ -687,14 +698,14 @@ const UI = window.UI = (() => {
         const rd = staffTotals[s.id].restDays;
         const minRest = s.minRestDays ?? CONSTANTS.DEFAULT_MIN_REST_DAYS;
         const cls = rd < minRest ? 'diff-over' : '';
-        return `<td class="shift-summary-cell"><span class="${cls}">${rd}日</span></td>`;
+        return `<td class="shift-summary-cell" colspan="2"><span class="${cls}">${rd}日</span></td>`;
       }).join('')}
       <td class="shift-summary-label">休日数</td>
     </tr>`;
 
     const totalHRow = `<tr class="shift-summary-row">
       <td class="shift-summary-label sticky-col-date">合計時間</td>
-      ${staff.map(s=>`<td class="shift-summary-cell shift-summary-hours">${staffTotals[s.id].totalH.toFixed(1)}h</td>`).join('')}
+      ${staff.map(s=>`<td class="shift-summary-cell shift-summary-hours" colspan="2">${staffTotals[s.id].totalH.toFixed(1)}h</td>`).join('')}
       <td class="shift-summary-label">合計時間</td>
     </tr>`;
 
@@ -708,7 +719,7 @@ const UI = window.UI = (() => {
         const diffHtml = diff > 0.05  ? `<span class="diff-over">+${diff.toFixed(1)}</span>`
                        : diff < -0.05 ? `<span class="diff-under">${diff.toFixed(1)}</span>`
                        : `<span class="diff-ok">±0</span>`;
-        return `<td class="shift-summary-cell shift-summary-target" title="月所定:${max}h / 実績:${act.toFixed(1)}h">${max}h<br>${diffHtml}</td>`;
+        return `<td class="shift-summary-cell shift-summary-target" colspan="2" title="月所定:${max}h / 実績:${act.toFixed(1)}h">${max}h<br>${diffHtml}</td>`;
       }).join('')}
       <td class="shift-summary-label">月所定<br><span style="font-size:9px">(差分)</span></td>
     </tr>`;
@@ -763,9 +774,9 @@ const UI = window.UI = (() => {
     const el=$('generateInfoText');
     if (!el) return;
     if (result) {
-      const vA=result.planA?.violations||[], vB=result.planB?.violations||[];
-      const hA=vA.filter(x=>x.type==='HARD').length, hB=vB.filter(x=>x.type==='HARD').length;
-      el.textContent=`最終生成: ${dates[0]||'?'} 〜 ${dates[dates.length-1]||'?'} ／ 案A:${hA}件 案B:${hB}件`;
+      const vA=result.planA?.violations||[];
+      const hA=vA.filter(x=>x.type==='HARD').length;
+      el.textContent=`最終生成: ${dates[0]||'?'} 〜 ${dates[dates.length-1]||'?'} ／ 違反:${hA}件`;
     } else {
       el.textContent=`スタッフ${staff.length}人 ／ 期間${dates.length}日 ／ 未生成`;
     }

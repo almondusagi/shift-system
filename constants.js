@@ -71,6 +71,8 @@ const CONSTANTS = window.CONSTANTS = Object.freeze({
     MIN_EMPLOYEE: '最低出勤人数（社員）', // 優先度4
     MAX_STAFF:    '最大出勤人数',       // 優先度5
     MAX_EMPLOYEE: '最大出勤人数（社員）', // 優先度5
+    MIN_COMMUNITY:  'min_community',
+    MAX_COMMUNITY:  'max_community',
     MAX_CONSEC:   '最大5連勤',         // 優先度6
     MONTHLY_HRS:  '月所定労働時間',     // 優先度7
     REST_DAYS:    '最低休日数',         // 優先度8

@@ -1184,9 +1184,9 @@ input, select, button, textarea {
 
 .shift-table .cell-work { background: var(--color-cell-work); }
 .shift-table .cell-off { background: var(--color-surface); color: var(--color-text-muted); }
-.shift-table .cell-wish-off { background: var(--color-cell-wish-off); }
-.shift-table .cell-paid { background: var(--color-cell-paid); }
-.shift-table .cell-prefer-off { background: var(--color-cell-prefer-off); }
+.shift-table .cell-wish-off { background: var(--color-cell-wish-off); color: #7f1d1d; font-weight: 700; }
+.shift-table .cell-paid { background: var(--color-cell-paid); color: #14532d; font-weight: 700; }
+.shift-table .cell-prefer-off { background: var(--color-cell-prefer-off); color: #1e3a8a; font-weight: 700; }
 
 /* 土日でも cell-work の青を維持 */
 .shift-table .cell-work.day-sat,
@@ -1194,12 +1194,7 @@ input, select, button, textarea {
 .shift-table-transposed .cell-work.day-sat,
 .shift-table-transposed .cell-work.day-sun { background: var(--color-cell-work) !important; }
 
-/* 土日の文字色（出勤セル以外） */
-.shift-table td.day-sun:not(.cell-work) { color: var(--color-danger); }
-.shift-table td.day-sat:not(.cell-work) { color: var(--color-primary); }
-/* 転置テーブル用 */
-.shift-table-transposed td.day-sun:not(.cell-work) { color: var(--color-danger); }
-.shift-table-transposed td.day-sat:not(.cell-work) { color: var(--color-primary); }
+/* 土日の文字色は通常通り（休日ならmuted、希望休等なら個別指定色） */
 /* 日付ヘッダー列は常に色付け */
 .shift-table td.shift-date-col.day-sun,
 .shift-table th.shift-date-col.day-sun { color: var(--color-danger) !important; background: #fff0f0; }
@@ -1509,16 +1504,7 @@ input, select, button, textarea {
   background: var(--color-surface-2);
 }
 
-/* ===== 日曜・土曜セル列 ===== */
-.shift-table th.day-sun,
-.shift-table td.day-sun {
-  background: #fff5f5;
-}
-
-.shift-table th.day-sat,
-.shift-table td.day-sat {
-  background: #f0f5ff;
-}
+/* ===== 日曜・土曜セル列（データセルは平日と同じ背景にするため削除） ===== */
 
 /* ===== シフトセルhover ===== */
 .shift-table td[data-sid]:hover {
@@ -1802,13 +1788,7 @@ thead .sticky-col-date {
   line-height: 1.3;
 }
 
-/* 土日行の色 */
-.shift-table-transposed tr:has(.shift-date-col.day-sun) td {
-  background-color: #fffcfc;
-}
-.shift-table-transposed tr:has(.shift-date-col.day-sat) td {
-  background-color: #f8fbff;
-}
+
 
 /* 早番・遅番マーク */
 .cell-shift-mark {
@@ -1890,9 +1870,9 @@ thead .sticky-col-date {
 /* セル状態（転置テーブル用 - 背景色上書き不要なのでそのまま使用） */
 .shift-table-transposed .cell-work       { background: var(--color-cell-work); }
 .shift-table-transposed .cell-off        { background: var(--color-surface); color: var(--color-text-muted); }
-.shift-table-transposed .cell-wish-off   { background: var(--color-cell-wish-off); }
-.shift-table-transposed .cell-paid       { background: var(--color-cell-paid); }
-.shift-table-transposed .cell-prefer-off { background: var(--color-cell-prefer-off); }
+.shift-table-transposed .cell-wish-off   { background: var(--color-cell-wish-off); color: #7f1d1d; font-weight: 700; }
+.shift-table-transposed .cell-paid       { background: var(--color-cell-paid); color: #14532d; font-weight: 700; }
+.shift-table-transposed .cell-prefer-off { background: var(--color-cell-prefer-off); color: #1e3a8a; font-weight: 700; }
 .shift-table-transposed .cell-forced-off {
   background: #f97316;
   color: white;

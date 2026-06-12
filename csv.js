@@ -153,13 +153,21 @@ const CSV = window.CSV = (() => {
         catRaw === '社員' ? CONSTANTS.CATEGORY.EMPLOYEE :
         catRaw === 'コミュニティ' ? CONSTANTS.CATEGORY.COMMUNITY :
         catRaw; // そのままフォールバック
+      const dailyHours = parseFloat(r[3]) || CONSTANTS.DEFAULT_DAILY_HOURS;
+      let hasBreak5h = r[4] === '1';
+      if (dailyHours > 5) {
+        hasBreak5h = true;
+      } else if (dailyHours < 5) {
+        hasBreak5h = false;
+      }
+
       imported.push({
         id:           State.generateId(),
         name:         r[0],
         category,
         monthlyHours: parseFloat(r[2]) || CONSTANTS.DEFAULT_MONTHLY_HOURS,
-        dailyHours:   parseFloat(r[3]) || CONSTANTS.DEFAULT_DAILY_HOURS,
-        hasBreak5h:   r[4] === '1',
+        dailyHours:   dailyHours,
+        hasBreak5h:   hasBreak5h,
         workStartAmPm: r[5] || 'am',
         workStartTime: r[6] || '',
         workEndAmPm:   r[7] || 'pm',
@@ -172,15 +180,21 @@ const CSV = window.CSV = (() => {
 
   // ===== STEP5 前月シフトCSV =====
 
-  // サンプルCSV生成（前月7日分）
-  const exportStep5Sample = () => {
+  const exportStep5 = () => {
     const dates = State.getPrevPeriodDates();
     const staff = State.getStaff();
     if (!dates.length) throw new Error('STEP1で期間を設定してください');
-
-    const header = [CONSTANTS.STEP5_CSV_STAFF_COL, ...dates.map(_dateLabel)];
-    const rows   = [header, ...staff.map(s => [s.name, ...dates.map(() => '')])];
-    download(`前月シフト_サンプル_${_today()}.csv`, rows);
+    const step5 = State.getStep5();
+    const header = [CONSTANTS.STEP5_CSV_STAFF_COL || 'スタッフ名', ...dates.map(_dateLabel)];
+    const rows = [header, ...staff.map(s => {
+      const dayMap = step5[s.id] || {};
+      return [s.name, ...dates.map(d => {
+        const cell = dayMap[d];
+        if (!cell || cell.state !== 'work') return '';
+        return cell.hours || '';
+      })];
+    })];
+    download(`前月シフト_${_today()}.csv`, rows);
   };
 
   // 前月シフトCSVインポート → { staffId: { date: { state, hours } } }
@@ -229,55 +243,115 @@ const CSV = window.CSV = (() => {
   };
 
   // ===== シフト表CSV出力（人閲覧用） =====
-  const exportShiftResult = (plan, suffix = '') => {
+  const exportShiftResult = (plan) => {
     if (!plan) throw new Error('シフトデータがありません');
     const dates = State.getPeriodDates();
     const staff = State.getStaff();
 
-    const headerRow1 = [
-      'スタッフ名', '区分',
-      ...dates.map(d => {
-        const dt = new Date(d + 'T00:00:00');
-        return `${dt.getMonth()+1}/${dt.getDate()}`;
-      }),
-      '出勤日数', '総時間',
-    ];
-    const headerRow2 = [
-      '', '',
-      ...dates.map(d => {
-        const dt = new Date(d + 'T00:00:00');
-        return CONSTANTS.WEEKDAY_SHORT[dt.getDay()];
-      }),
-      '', '',
-    ];
+    // ヘッダー行1: 日付, スタッフ1(区分), (空白), スタッフ2(区分), (空白)..., 日付
+    const headerRow1 = ['日付'];
+    staff.forEach(s => {
+      const cat = CONSTANTS.CATEGORY_LABEL[s.category] || s.category;
+      headerRow1.push(`${s.name}（${cat}）`);
+      headerRow1.push(''); // h用
+    });
+    headerRow1.push('日付');
 
-    const dataRows = staff.map(s => {
-      const cells = plan.cells[s.id] || {};
-      let workDays = 0, totalHours = 0;
-      const row = [
-        s.name,
-        CONSTANTS.CATEGORY_LABEL[s.category] || s.category,
-        ...dates.map(d => {
-          const c = cells[d];
-          if (!c || c.state === 'off')       return '休';
-          if (c.state === 'forcedOff')       return '強制休【最大人数超過】';
-          if (c.state === 'paid')            return '有給';
-          if (c.state === 'wishOff')         return '希望休';
-          if (c.state === 'preferOff')       return '青（出勤可）';
-          workDays++;
-          totalHours += c.hours || 0;
-          const shift = c.shiftType === 'early' ? '早番' : c.shiftType === 'late' ? '遅番' : '';
-          return c.hours ? `${c.hours}h${shift ? ' ' + shift : ''}` : '出勤';
-        }),
-        workDays,
-        totalHours.toFixed(1),
-      ];
+    // ヘッダー行2: (空白), 時間, h, 時間, h..., (空白)
+    const headerRow2 = [''];
+    staff.forEach(() => {
+      headerRow2.push('時間');
+      headerRow2.push('h');
+    });
+    headerRow2.push('');
+
+    // データ行
+    const dataRows = dates.map(d => {
+      const lbl = _dateLabel(d);
+      const row = [lbl];
+      
+      staff.forEach(s => {
+        const c = plan.cells[s.id]?.[d];
+        if (!c || c.state === 'off') {
+          row.push(''); row.push('休');
+        } else if (c.state === 'forcedOff') {
+          row.push(''); row.push('強制休');
+        } else if (c.state === 'paid') {
+          row.push(''); row.push('有給');
+        } else if (c.state === 'wishOff') {
+          row.push(''); row.push('希望休');
+        } else if (c.state === 'preferOff') {
+          row.push(''); row.push('青（出勤可）');
+        } else {
+          // 出勤日
+          const h = c.hours || 0;
+          const timeStr = (c.workStart && c.workEnd) ? `${c.workStart}〜${c.workEnd}` : '';
+          const hoursStr = `${h}h`;
+          row.push(timeStr);
+          row.push(hoursStr);
+        }
+      });
+      row.push(lbl); // 右端にも日付を追加
       return row;
     });
 
-    const rows = [headerRow1, headerRow2, ...dataRows];
-    const s1   = State.getStep1();
-    download(`シフト表_${s1.year}年${s1.month}月${suffix}_${_today()}.csv`, rows);
+    // 集計データ計算
+    const staffTotals = {};
+    for (const s of staff) {
+      let workDays=0, totalH=0, restDays=0;
+      for (const d of dates) {
+        const cell = plan.cells[s.id]?.[d];
+        if (cell?.state === 'work')      { workDays++; totalH += cell.hours||0; }
+        if (cell?.state === 'paid')      { totalH += cell.hours||0; }
+        if (cell?.state === 'off'    ||
+            cell?.state === 'wishOff' ||
+            cell?.state === 'preferOff'||
+            cell?.state === 'forcedOff') restDays++;
+      }
+      staffTotals[s.id] = { workDays, totalH, restDays };
+    }
+
+    // 集計行
+    const sumWorkDaysRow = ['出勤日数'];
+    const sumRestDaysRow = ['休日数'];
+    const sumTotalHRow   = ['合計時間'];
+    const sumMonthRow    = ['月所定(差分)'];
+
+    staff.forEach(s => {
+      const totals = staffTotals[s.id];
+      const eff = State.getEffectiveStaff(s.id);
+      const max = eff?.monthlyHours || CONSTANTS.DEFAULT_MONTHLY_HOURS;
+      const diff = totals.totalH - max;
+      let diffStr = '±0';
+      if (diff > 0.05) diffStr = `+${diff.toFixed(1)}`;
+      else if (diff < -0.05) diffStr = `${diff.toFixed(1)}`;
+      
+      sumWorkDaysRow.push(`${totals.workDays}日`, '');
+      sumRestDaysRow.push(`${totals.restDays}日`, '');
+      sumTotalHRow.push(`${totals.totalH.toFixed(1)}h`, '');
+      sumMonthRow.push(`${max}h (${diffStr})`, '');
+    });
+
+    sumWorkDaysRow.push('出勤日数');
+    sumRestDaysRow.push('休日数');
+    sumTotalHRow.push('合計時間');
+    sumMonthRow.push('月所定(差分)');
+
+    const rows = [
+      headerRow1,
+      headerRow2,
+      ...dataRows,
+      [], // 空行（表と集計行の区切り）
+      sumWorkDaysRow,
+      sumRestDaysRow,
+      sumTotalHRow,
+      sumMonthRow
+    ];
+    const lastDate = dates[dates.length - 1];
+    const endDt = new Date(lastDate + 'T00:00:00');
+    const endYear = endDt.getFullYear();
+    const endMonth = endDt.getMonth() + 1;
+    download(`${endYear}年${endMonth}月度勤務計画表.csv`, rows);
   };
 
   // ===== ユーティリティ =====
@@ -308,7 +382,7 @@ const CSV = window.CSV = (() => {
   return {
     encode, decode, download,
     exportStaff, importStaff,
-    exportStep5Sample, importStep5,
+    exportStep5, importStep5,
     exportShiftResult,
   };
 })();

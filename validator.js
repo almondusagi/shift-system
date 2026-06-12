@@ -120,6 +120,7 @@ const Validator = window.Validator = (() => {
 
       const working    = _getWorkingStaff(plan, staff, date);
       const empWorking = working.filter(s => s.category === CONSTANTS.CATEGORY.EMPLOYEE);
+      const comWorking = working.filter(s => s.category === CONSTANTS.CATEGORY.COMMUNITY);
 
       if (working.length < minStaff)
         violations.push(_v('HARD', RULE.MIN_STAFF, null, date,
@@ -127,6 +128,10 @@ const Validator = window.Validator = (() => {
       if (empWorking.length < minEmployee)
         violations.push(_v('HARD', RULE.MIN_EMPLOYEE, null, date,
           `社員の最低出勤人数(${minEmployee}人)を満たしていません（実際:${empWorking.length}人）`));
+      const minCommunity = ex?.staffCountChange && ex.minCommunity != null ? ex.minCommunity : step1.minCommunity;
+      if (minCommunity != null && minCommunity > 0 && comWorking.length < minCommunity)
+        violations.push(_v('HARD', RULE.MIN_COMMUNITY, null, date,
+          `コミュニティの最低出勤人数(${minCommunity}人)を満たしていません（実際:${comWorking.length}人）`));
     }
     return violations;
   };
@@ -140,6 +145,7 @@ const Validator = window.Validator = (() => {
 
       const working    = _getWorkingStaff(plan, staff, date);
       const empWorking = working.filter(s => s.category === CONSTANTS.CATEGORY.EMPLOYEE);
+      const comWorking = working.filter(s => s.category === CONSTANTS.CATEGORY.COMMUNITY);
 
       if (maxStaff    != null && working.length > maxStaff)
         violations.push(_v('HARD', RULE.MAX_STAFF, null, date,
@@ -147,6 +153,10 @@ const Validator = window.Validator = (() => {
       if (maxEmployee != null && empWorking.length > maxEmployee)
         violations.push(_v('HARD', RULE.MAX_EMPLOYEE, null, date,
           `社員の最大出勤人数(${maxEmployee}人)を超過しています（実際:${empWorking.length}人）`));
+      const maxCommunity = ex?.staffCountChange && ex.maxCommunity != null ? ex.maxCommunity : (step1.maxCommunity ?? null);
+      if (maxCommunity != null && comWorking.length > maxCommunity)
+        violations.push(_v('HARD', RULE.MAX_COMMUNITY, null, date,
+          `コミュニティの最大出勤人数(${maxCommunity}人)を超過しています（実際:${comWorking.length}人）`));
     }
     return violations;
   };

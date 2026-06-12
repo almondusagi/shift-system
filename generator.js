@@ -110,6 +110,122 @@ const Generator = window.Generator = (() => {
       adjustLog.push(`[調整] 連休・連勤制限の再調整: ${consecutiveFixes}件`);
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  Phase 4: 就労時間の算出（カバレッジ対応）
+    //  早番 → 始業時刻から順算
+    //  遅番 → 終業時刻から逆算
+    //  通常 → 就業時間帯の空き時間が出ないよう配置
+    // ═══════════════════════════════════════════════════════════
+    for (const date of dates) {
+      // この日の就業時間帯
+      const bizStartMin = _timeToMinutes(step1.bizStartTime || '09:00');
+      const bizEndMin   = _timeToMinutes(step1.bizEndTime   || '18:00');
+
+      // この日の出勤者を分類
+      const dayWorkers = { early: [], late: [], normal: [] };
+      for (const s of staff) {
+        const cell = cells[s.id][date];
+        if (!_isWorkState(cell.state)) continue;
+
+        // STEP4例外で時間が指定されている場合はそちらを使い、配置対象外とする
+        if (cell.exBiz && cell.exBiz.start && cell.exBiz.end) {
+          cell.workStart = cell.exBiz.start;
+          cell.workEnd   = cell.exBiz.end;
+          continue;
+        }
+
+        const eff = State.getEffectiveStaff(s.id);
+        const dailyH  = cell.hours || eff?.dailyHours || DEFAULT_DAILY_HOURS;
+        const hasBreak = eff?.hasBreak5h || false;
+        const totalH   = hasBreak ? dailyH + 1 : dailyH;  // 実働 + 休憩
+        const totalMin = Math.round(totalH * 60);
+
+        // スタッフ固有の勤務可能範囲
+        const staffStart = _timeToMinutes(eff?.workStartTime || step1.bizStartTime || '09:00');
+        const staffEnd   = _timeToMinutes(eff?.workEndTime   || step1.bizEndTime   || '18:00');
+
+        const info = { staffObj: s, cell, eff, totalMin, staffStart, staffEnd };
+
+        if (cell.shiftType === SHIFT_TYPE.EARLY) {
+          dayWorkers.early.push(info);
+        } else if (cell.shiftType === SHIFT_TYPE.LATE) {
+          dayWorkers.late.push(info);
+        } else {
+          dayWorkers.normal.push(info);
+        }
+      }
+
+      // ── 1. 早番: 就業開始時刻から順算 ──
+      for (const w of dayWorkers.early) {
+        const earlyStart = _timeToMinutes(step1.earlyStart || step1.bizStartTime || '09:00');
+        let wStart = Math.max(earlyStart, w.staffStart);
+        let wEnd   = wStart + w.totalMin;
+        // 就業時間帯を超えないようにクリップ
+        if (wEnd > bizEndMin) wEnd = bizEndMin;
+        w.cell.workStart = _minutesToTime(wStart);
+        w.cell.workEnd   = _minutesToTime(wEnd);
+      }
+
+      // ── 2. 遅番: 就業終了時刻から逆算 ──
+      for (const w of dayWorkers.late) {
+        const lateEnd = _timeToMinutes(step1.lateEnd || step1.bizEndTime || '18:00');
+        let wEnd   = Math.min(lateEnd, w.staffEnd);
+        let wStart = wEnd - w.totalMin;
+        // 就業時間帯より前にならないようにクリップ
+        if (wStart < bizStartMin) wStart = bizStartMin;
+        w.cell.workStart = _minutesToTime(wStart);
+        w.cell.workEnd   = _minutesToTime(wEnd);
+      }
+
+      // ── 3. 通常: カバレッジの穴を埋めるように配置 ──
+      if (dayWorkers.normal.length > 0) {
+        // 現在の早番/遅番によるカバレッジマップを構築（1分単位）
+        const coverageMap = new Array(bizEndMin - bizStartMin).fill(0);
+
+        // 既に配置済みの早番・遅番のカバレッジをカウント
+        for (const w of [...dayWorkers.early, ...dayWorkers.late]) {
+          const ws = _timeToMinutes(w.cell.workStart);
+          const we = _timeToMinutes(w.cell.workEnd);
+          for (let m = Math.max(ws, bizStartMin); m < Math.min(we, bizEndMin); m++) {
+            coverageMap[m - bizStartMin]++;
+          }
+        }
+
+        // STEP4例外で既に配置済みのスタッフもカウント
+        for (const s of staff) {
+          const cell = cells[s.id][date];
+          if (!_isWorkState(cell.state)) continue;
+          if (!cell.workStart || !cell.workEnd) continue;
+          if (dayWorkers.early.some(w => w.staffObj.id === s.id)) continue;
+          if (dayWorkers.late.some(w => w.staffObj.id === s.id)) continue;
+          if (dayWorkers.normal.some(w => w.staffObj.id === s.id)) continue;
+          const ws = _timeToMinutes(cell.workStart);
+          const we = _timeToMinutes(cell.workEnd);
+          for (let m = Math.max(ws, bizStartMin); m < Math.min(we, bizEndMin); m++) {
+            coverageMap[m - bizStartMin]++;
+          }
+        }
+
+        // 通常シフトの配置: カバレッジが最も薄い時間帯を優先的にカバー
+        // 拘束時間が長い人から先に配置
+        dayWorkers.normal.sort((a, b) => b.totalMin - a.totalMin);
+
+        for (const w of dayWorkers.normal) {
+          const bestPos = _findBestPosition(
+            w.totalMin, w.staffStart, w.staffEnd,
+            bizStartMin, bizEndMin, coverageMap
+          );
+          w.cell.workStart = _minutesToTime(bestPos.start);
+          w.cell.workEnd   = _minutesToTime(bestPos.end);
+
+          // カバレッジマップを更新
+          for (let m = Math.max(bestPos.start, bizStartMin); m < Math.min(bestPos.end, bizEndMin); m++) {
+            coverageMap[m - bizStartMin]++;
+          }
+        }
+      }
+    }
+
     const plan      = { cells, violations: [] };
     plan.violations = Validator.validateAll(plan);
     plan.score      = 0;
@@ -122,8 +238,60 @@ const Generator = window.Generator = (() => {
       ...adjustLog,
     ];
 
-    // planA / planB 両方同じ（現段階では1案のみ）
-    return { planA: plan, planB: plan, log };
+    return { planA: plan, log };
+  };
+
+  // ─── 就労時間算出ヘルパー ──────────────────────────────────────
+
+  /**
+   * 通常シフトの最適配置位置を探す
+   * カバレッジが最も薄い時間帯をカバーする位置を返す
+   */
+  const _findBestPosition = (totalMin, staffStart, staffEnd, bizStart, bizEnd, coverageMap) => {
+    const mapLen = bizEnd - bizStart;
+    let bestStart = staffStart;
+    let bestScore = Infinity;
+
+    // スライディングウィンドウで最適位置を探索（5分刻み）
+    const step = 5;
+    for (let candidateStart = staffStart; candidateStart + totalMin <= staffEnd; candidateStart += step) {
+      let candidateEnd = candidateStart + totalMin;
+
+      // スコア計算: このウィンドウが配置された場合の就業時間帯全体のカバレッジの
+      // 最小値を最大化する（= 穴を作らない）
+      let minCoverage = Infinity;
+      for (let m = 0; m < mapLen; m++) {
+        const absMin = bizStart + m;
+        const existing = coverageMap[m];
+        const added = (absMin >= candidateStart && absMin < candidateEnd) ? 1 : 0;
+        const total = existing + added;
+        if (total < minCoverage) minCoverage = total;
+      }
+
+      // スコア: 穴（カバレッジ0）がないことを最優先、次にカバレッジの均一性
+      // カバレッジの最小値が大きいほど良い（負にして最小化）
+      const score = -minCoverage;
+      if (score < bestScore) {
+        bestScore = score;
+        bestStart = candidateStart;
+      }
+    }
+
+    return { start: bestStart, end: bestStart + totalMin };
+  };
+
+  /** HH:MM → 分に変換 */
+  const _timeToMinutes = (time) => {
+    if (!time) return 540;  // デフォルト 9:00
+    const [h, m] = time.split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
+  /** 分 → HH:MM に変換 */
+  const _minutesToTime = (minutes) => {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   };
 
   // ═══════════════════════════════════════════════════════════
@@ -247,6 +415,17 @@ const Generator = window.Generator = (() => {
           if (added > 0) { changed = true; totalSwaps += added; }
         }
 
+        // ─── 2.5. コミュニティ最低出勤人数チェック ────────────
+        const workingCom = working.filter(id => {
+          const s = staff.find(x => x.id === id);
+          return s?.category === CATEGORY.COMMUNITY;
+        });
+        if (limits.minCommunity != null && workingCom.length < limits.minCommunity) {
+          const need = limits.minCommunity - workingCom.length;
+          const added = _addWorkersToDate(cells, staff, dates, date, need, CATEGORY.COMMUNITY, step5, prevDates);
+          if (added > 0) { changed = true; totalSwaps += added; }
+        }
+
         // 出勤人数の再集計（変更後）
         const working2    = _getWorkingStaffIds(cells, staff, date);
         const workingEmp2 = working2.filter(id => _isEmployee(staff, id));
@@ -262,6 +441,17 @@ const Generator = window.Generator = (() => {
         if (limits.maxEmployee != null && workingEmp2.length > limits.maxEmployee) {
           const excess = workingEmp2.length - limits.maxEmployee;
           const removed = _removeWorkersFromDate(cells, staff, dates, date, excess, CATEGORY.EMPLOYEE, step5, prevDates);
+          if (removed > 0) { changed = true; totalSwaps += removed; }
+        }
+
+        // ─── 4.5. コミュニティ最大出勤人数チェック ────────────
+        const workingCom2 = working2.filter(id => {
+          const s = staff.find(x => x.id === id);
+          return s?.category === CATEGORY.COMMUNITY;
+        });
+        if (limits.maxCommunity != null && workingCom2.length > limits.maxCommunity) {
+          const excess = workingCom2.length - limits.maxCommunity;
+          const removed = _removeWorkersFromDate(cells, staff, dates, date, excess, CATEGORY.COMMUNITY, step5, prevDates);
           if (removed > 0) { changed = true; totalSwaps += removed; }
         }
 
@@ -311,6 +501,8 @@ const Generator = window.Generator = (() => {
       maxStaff:    ex?.maxStaff    ?? step1.maxStaff    ?? null,
       minEmployee: ex?.minEmployee ?? step1.minEmployee ?? null,
       maxEmployee: ex?.maxEmployee ?? step1.maxEmployee ?? null,
+      minCommunity: ex?.minCommunity ?? step1.minCommunity ?? null,
+      maxCommunity: ex?.maxCommunity ?? step1.maxCommunity ?? null,
       earlyMin:    ex?.earlyCountMin ?? step1.earlyCountMin ?? 0,
       earlyMax:    ex?.earlyCountMax ?? step1.earlyCountMax ?? null,
       lateMin:     ex?.lateCountMin  ?? step1.lateCountMin  ?? 0,

@@ -235,6 +235,8 @@ const App = window.App = (() => {
       maxStaff:     _nullInt('maxStaff'),
       minEmployee:  _nullInt('minEmployee'),
       maxEmployee:  _nullInt('maxEmployee'),
+      minCommunity:  _nullInt('minCommunity'),
+      maxCommunity:  _nullInt('maxCommunity'),
       earlyCountMin: _nullInt('earlyCountMin'),
       earlyCountMax: _nullInt('earlyCountMax'),
       lateCountMin:  _nullInt('lateCountMin'),
@@ -242,6 +244,7 @@ const App = window.App = (() => {
     });
     Storage.autoSave(UI.showSaveStatus);
     UI.updateGenerateInfo();
+    UI.renderStaffTable();  // 就業時間変更に伴う早番可/遅番可表記更新
   };
 
   // ===== STEP2 =====
@@ -405,6 +408,8 @@ const App = window.App = (() => {
       maxStaff:         staffCountVal === 'change' ? _nullInt('step4MaxStaff')    : null,
       minEmployee:      staffCountVal === 'change' ? _nullInt('step4MinEmployee') : null,
       maxEmployee:      staffCountVal === 'change' ? _nullInt('step4MaxEmployee') : null,
+      minCommunity:     staffCountVal === 'change' ? _nullInt('step4MinCommunity') : null,
+      maxCommunity:     staffCountVal === 'change' ? _nullInt('step4MaxCommunity') : null,
       earlyCountMin:    staffCountVal === 'change' ? _nullInt('step4EarlyCountMin') : null,
       earlyCountMax:    staffCountVal === 'change' ? _nullInt('step4EarlyCountMax') : null,
       lateCountMin:     staffCountVal === 'change' ? _nullInt('step4LateCountMin')  : null,
@@ -431,8 +436,8 @@ const App = window.App = (() => {
 
   // ===== STEP5 =====
   const _bindStep5 = () => {
-    UI.$('exportSampleCSV')?.addEventListener('click', () => {
-      try { CSV.exportStep5Sample(); Modal.toastSuccess('サンプルCSVを出力しました'); }
+    UI.$('exportStep5CSV')?.addEventListener('click', () => {
+      try { CSV.exportStep5(); Modal.toastSuccess('CSVを出力しました'); }
       catch(e) { Modal.toastError(e.message); }
     });
     UI.$('importStep5CSV')?.addEventListener('change', async (e) => {
@@ -458,14 +463,7 @@ const App = window.App = (() => {
   };
 
   const _bindResultTabs = () => {
-    document.getElementById('resultTabA')?.addEventListener('click', () => {
-      State.setUI({ resultActiveTab: 'planA' });
-      UI.renderResult();
-    });
-    document.getElementById('resultTabB')?.addEventListener('click', () => {
-      State.setUI({ resultActiveTab: 'planB' });
-      UI.renderResult();
-    });
+    // タブ切替不要（planAのみ）
   };
 
   const generateShift = () => {
@@ -482,20 +480,18 @@ const App = window.App = (() => {
     Modal.showLoading('シフトを生成中...');
     setTimeout(() => {
       try {
-        const { planA, planB, log } = Generator.generate();
-        State.setResult({ planA, planB, log });
-        State.setUI({ resultActiveTab: 'planA' });
+        const { planA, log } = Generator.generate();
+        State.setResult({ planA, log });
         Storage.autoSave(UI.showSaveStatus);
         UI.renderResult();
         UI.updateGenerateInfo();
         UI.switchTab('result');
         Modal.hideLoading();
         const hA = planA.violations.filter(v => v.type === 'HARD').length;
-        const hB = planB?.violations.filter(v => v.type === 'HARD').length || 0;
-        if (hA > 0 || hB > 0)
-          Modal.toastWarning(`生成完了。案A:${hA}件 / 案B:${hB}件 の制約違反があります。内容を確認してください。`);
+        if (hA > 0)
+          Modal.toastWarning(`生成完了。${hA}件の制約違反があります。内容を確認してください。`);
         else
-          Modal.toastSuccess('シフトを生成しました（案A・案B とも制約充足）');
+          Modal.toastSuccess('シフトを生成しました（制約充足）');
       } catch(err) {
         Modal.hideLoading();
         Modal.toastError(`生成エラー: ${err.message}`);
@@ -507,10 +503,10 @@ const App = window.App = (() => {
   const downloadPlan = (key) => {
     const result = State.getResult();
     if (!result) { Modal.toastError('生成結果がありません'); return; }
-    const plan = result[key];
+    const plan = result.planA;
     if (!plan) { Modal.toastError('対象の案が見つかりません'); return; }
     try {
-      CSV.exportShiftResult(plan, key === 'planA' ? '_案A' : '_案B');
+      CSV.exportShiftResult(plan);
       Modal.toastSuccess('シフト表をダウンロードしました');
     } catch(e) { Modal.toastError(e.message); }
   };

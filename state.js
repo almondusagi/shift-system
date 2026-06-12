@@ -29,6 +29,8 @@ const State = window.State = (() => {
       // 最低・最大社員出勤人数
       minEmployee:  0,
       maxEmployee:  null,
+      minCommunity:   0,
+      maxCommunity:   null,
       // 早番・遅番人数（最低〜最大）
       earlyCountMin: 0,
       earlyCountMax: null,
